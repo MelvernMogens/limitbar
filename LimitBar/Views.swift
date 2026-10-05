@@ -204,7 +204,7 @@ final class HermesChip: Chip {
     var sessions: [HermesSession] = [] { didSet { relayout() } }
     private var top = attr("Hermes", 11), bottom = attr("", 9)
     private var dot: HermesSession.Status? = nil
-    private let maxW: CGFloat = 196
+    private let maxW: CGFloat = 175
 
     override init() { super.init(); relayout() }
     required init?(coder: NSCoder) { fatalError() }

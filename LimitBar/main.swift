@@ -3,7 +3,7 @@ import UserNotifications
 
 // LimitBar v2 — Touch Bar cockpit for AI coding plans + Hermes.
 //
-//  overview : [GLM][Claude][Codex]  [Hermes now]                   | control strip
+//  overview : [GLM][Claude][Codex]  [Hermes now]  [cpu ram bat]     | control strip
 //  detail   : [‹][logo plan][5h ▬▬|▬ pace][weekly ▬|▬▬ pace][extras]
 //  sessions : [‹][● working …][✓ done …][· idle …]  (swipe, tap = open in Hermes)
 
@@ -38,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let weeklyWin = WindowChip()
     private let extrasChip = ExtrasChip()
     private let strip = SessionsStrip()
+    private let statsChip = StatsChip()
+    private let sampler = StatsSampler()
+    private var statsTimer: Timer?
 
     // MARK: lifecycle
 
@@ -48,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         wireTaps()
         present()
         reloadControlStrip()
+        // first reload can race the modal bar coming up — repeat once it has settled
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { reloadControlStrip() }
 
         let nc = NSWorkspace.shared.notificationCenter
         nc.addObserver(self, selector: #selector(appChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
@@ -83,7 +88,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
-        [refreshTimer, sessionTimer, tickTimer].forEach { $0?.tolerance = 0.3 }
+        statsTimer?.invalidate()
+        statsTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.statsChip.stats = self.sampler.sample()
+        }
+        _ = sampler.sample()
+        [refreshTimer, sessionTimer, tickTimer, statsTimer].forEach { $0?.tolerance = 0.3 }
     }
 
     func configUpdated() {
@@ -150,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch mode {
         case .overview:
             tb.defaultItemIdentifiers = ProviderID.allCases.map { id("p.\($0.rawValue)") }
-                + [.fixedSpaceSmall, id("hermes")]
+                + [.fixedSpaceSmall, id("hermes"), id("stats")]
         case .detail(let pid):
             let hasWeek = usages.first { $0.id == pid }?.weekly != nil
             tb.defaultItemIdentifiers = [id("back"), id("header"), id("w.session")] + (hasWeek ? [id("w.weekly")] : []) + [id("extras")]
@@ -165,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         let view: NSView?
         switch key {
         case "hermes": view = hermesChip
+        case "stats": view = statsChip
         case "back": view = backChip
         case "header": view = headerChip
         case "w.session": view = sessionWin
@@ -194,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             }
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
+        statsChip.onTap = { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")) }
         backChip.onTap = { [weak self] in self?.mode = .overview; self?.rebuildBar() }
         headerChip.onTap = { [weak self] in self?.refreshUsage() }
         extrasChip.onTap = { [weak self] in self?.refreshUsage() }

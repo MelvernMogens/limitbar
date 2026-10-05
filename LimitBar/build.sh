@@ -9,9 +9,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "[build] swiftc..."
 swiftc -O -module-name LimitBar \
-  -framework AppKit -framework CoreGraphics -framework UserNotifications -framework ServiceManagement \
+  -framework AppKit -framework CoreGraphics -framework UserNotifications -framework ServiceManagement -framework IOKit \
   -o "$APP/Contents/MacOS/LimitBar" \
-  main.swift DFR.swift Providers.swift Advisor.swift Hermes.swift Views.swift Settings.swift \
+  main.swift DFR.swift Providers.swift Advisor.swift Hermes.swift Views.swift Settings.swift Stats.swift \
   BrandPaths.swift TinySVGPath.swift
 
 cp Info.plist "$APP/Contents/Info.plist"
