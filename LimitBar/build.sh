@@ -5,14 +5,19 @@ cd "$(dirname "$0")"
 
 APP="build/LimitBar.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 echo "[build] swiftc..."
-swiftc -O -framework AppKit -framework CoreGraphics -o "$APP/Contents/MacOS/LimitBar" main.swift BrandPaths.swift TinySVGPath.swift
+swiftc -O -module-name LimitBar \
+  -framework AppKit -framework CoreGraphics -framework UserNotifications -framework ServiceManagement \
+  -o "$APP/Contents/MacOS/LimitBar" \
+  main.swift DFR.swift Providers.swift Advisor.swift Hermes.swift Views.swift Settings.swift \
+  BrandPaths.swift TinySVGPath.swift
 
 cp Info.plist "$APP/Contents/Info.plist"
+[ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 echo "[build] codesign (ad-hoc)..."
-codesign --force --sign - "$APP" 2>/dev/null
+codesign --force --sign - --identifier com.melvern.limitbar "$APP" 2>/dev/null
 
 echo "[build] OK -> $APP"
