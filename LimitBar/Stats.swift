@@ -109,22 +109,22 @@ final class StatsChip: Chip {
         let gb = stats.ramUsed / 1_073_741_824
         let ramColor: NSColor = stats.pressure >= 4 ? .systemRed : (stats.pressure >= 2 ? .systemOrange : NSColor(white: 0.92, alpha: 1))
         c.append(Col(value: attr(String(format: "%.1fG", gb), 12, .bold, ramColor, mono: true),
-                     label: attr("ram /\(Int((stats.ramTotal / 1_073_741_824).rounded()))", 9, .medium, dimText),
+                     label: attr("ram", 9, .medium, dimText),
                      frac: stats.ramFrac, color: ramColor))
 
         if let b = stats.battery {
             let bc: NSColor = stats.charging || stats.onAC ? workingGreen : (b <= 0.1 ? .systemRed : (b <= 0.2 ? .systemOrange : NSColor(white: 0.92, alpha: 1)))
             var lab = stats.charging ? "charging" : (stats.onAC ? "plugged" : "battery")
-            if let m = stats.minutesLeft, !stats.onAC || stats.charging { lab = "\(m / 60)h\(String(format: "%02d", m % 60)) \(stats.charging ? "to full" : "left")" }
+            if let m = stats.minutesLeft, !stats.onAC || stats.charging { lab = "\(stats.charging ? "⚡" : "")\(m / 60)h\(String(format: "%02d", m % 60))" }
             c.append(Col(value: attr(pct(b), 12, .bold, bc, mono: true), label: attr(lab, 9, .medium, dimText), frac: b, color: bc))
         }
         cols = c
-        let w = cols.reduce(CGFloat(8)) { $0 + 4 + 5 + max($1.value.size().width, $1.label.size().width) + 10 }
+        let w = cols.reduce(CGFloat(7)) { $0 + 4 + 4 + max($1.value.size().width, $1.label.size().width) + 8 }
         setWidth(w)
     }
 
     override func drawContent(_ r: NSRect) {
-        var x = r.minX + 8
+        var x = r.minX + 7
         for col in cols {
             // vertical mini meter
             let track = NSRect(x: x, y: r.midY - 9, width: 4, height: 18)
@@ -133,9 +133,9 @@ final class StatsChip: Chip {
             let h = max(2, track.height * CGFloat(min(1, col.frac)))
             col.color.setFill()
             NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: 4, height: h), xRadius: 2, yRadius: 2).fill()
-            let tx = x + 4 + 5
+            let tx = x + 4 + 4
             drawTwoLines(col.value, col.label, x: tx, in: r)
-            x = tx + max(col.value.size().width, col.label.size().width) + 10
+            x = tx + max(col.value.size().width, col.label.size().width) + 8
         }
     }
 }

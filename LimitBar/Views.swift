@@ -142,7 +142,7 @@ class Chip: NSButton {
 final class ProviderChip: Chip {
     var usage: ProviderUsage { didSet { relayout() } }
     private var big = attr("…", 12), small = attr("", 9)
-    private let barW: CGFloat = 26
+    private let barW: CGFloat = 22
 
     init(_ u: ProviderUsage) { usage = u; super.init(); relayout() }
     required init?(coder: NSCoder) { fatalError() }
@@ -171,15 +171,15 @@ final class ProviderChip: Chip {
         case .failed:
             big = attr("—", 12.5, .bold, faintText); small = attr("offline", 9, .medium, faintText); border = nil
         }
-        setWidth(7 + 14 + 6 + barW + 6 + max(big.size().width, small.size().width) + 8)
+        setWidth(6 + 14 + 5 + barW + 5 + max(big.size().width, small.size().width) + 7)
     }
 
     override func drawContent(_ r: NSRect) {
         let mid = r.midY
         let ok = usage.state == .ok
-        Logo.draw(usage.id, center: CGPoint(x: r.minX + 7 + 7, y: mid), size: 14,
+        Logo.draw(usage.id, center: CGPoint(x: r.minX + 6 + 7, y: mid), size: 14,
                   color: ok ? usage.id.color : faintText)
-        let bx = r.minX + 7 + 14 + 6
+        let bx = r.minX + 6 + 14 + 5
         if ok {
             let s = usage.session, w = usage.weekly
             if let s, let w {
@@ -194,7 +194,7 @@ final class ProviderChip: Chip {
         } else {
             drawBar(NSRect(x: bx, y: mid - 2, width: barW, height: 4), used: 0, color: faintText)
         }
-        drawTwoLines(big, small, x: bx + barW + 6, in: r)
+        drawTwoLines(big, small, x: bx + barW + 5, in: r)
     }
 }
 
@@ -204,7 +204,7 @@ final class HermesChip: Chip {
     var sessions: [HermesSession] = [] { didSet { relayout() } }
     private var top = attr("Hermes", 11), bottom = attr("", 9)
     private var dot: HermesSession.Status? = nil
-    private let maxW: CGFloat = 175
+    private let maxW: CGFloat = 150
 
     override init() { super.init(); relayout() }
     required init?(coder: NSCoder) { fatalError() }
@@ -216,8 +216,8 @@ final class HermesChip: Chip {
         if let w = working.first {
             dot = .working
             top = fit(w.title, 11, .semibold, .white, maxW: textW)
-            var tail = "\(w.activity) · \(fmtElapsed(w.since))"
-            if working.count > 1 { tail += "  +\(working.count - 1) more" }
+            var tail = "\(w.activity) \(fmtElapsed(w.since))"
+            if working.count > 1 { tail = "+\(working.count - 1) · " + tail }
             bottom = fit(tail, 9, .medium, workingGreen.withAlphaComponent(0.9), maxW: textW)
         } else if let d = done.first {
             dot = .done

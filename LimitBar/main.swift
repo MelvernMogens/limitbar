@@ -190,6 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         guard let v = view else { return nil }
         let item = NSCustomTouchBarItem(identifier: identifier)
         item.view = v
+        // if space ever runs short, the Hermes chip yields first — never the limits or stats
+        item.visibilityPriority = key == "hermes" ? .low : .high
         return item
     }
 
