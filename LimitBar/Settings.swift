@@ -40,13 +40,11 @@ struct Config {
     }
 }
 
-/// Immediate heal (user tapped the "login" chip): bypass the 10-min backoff.
+/// User tapped "login" on the Claude chip: try a refresh, else open a real login.
 func healClaudeTokenNow() {
-    let candidates = [NSHomeDirectory() + "/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
-    if let bin = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-        _ = runProcess(bin, ["auth", "status"])
+    if !ClaudeAuth.ensureFresh(force: true) {
+        DispatchQueue.main.async { runInTerminal("claude auth login") }
     }
-    if claudeCredentials() == nil { DispatchQueue.main.async { runInTerminal("claude auth login") } }
 }
 
 // MARK: - Settings window

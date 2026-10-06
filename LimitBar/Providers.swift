@@ -126,55 +126,19 @@ func fetchGLM(key: String) -> ProviderUsage {
 
 // MARK: - Claude (subscription OAuth)
 
-/// When the access token is stale, let Claude Code itself rotate it (the refresh
-/// endpoint rate-limits third parties hard). `claude auth status` is ~1s, no usage.
-private var lastClaudeHeal = Date.distantPast
-func healClaudeToken() {
-    guard Date().timeIntervalSince(lastClaudeHeal) > 600 else { return }
-    lastClaudeHeal = Date()
-    let candidates = [NSHomeDirectory() + "/.local/bin/claude",
-                      NSHomeDirectory() + "/.nvm/versions/node/v24.19.0/bin/claude",
-                      "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
-    guard let bin = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { return }
-    _ = runProcess(bin, ["auth", "status"])
-    NSLog("[LimitBar] claude token heal attempted via `claude auth status`")
-}
-
-/// Claude Code keeps credentials in the login keychain (moved there 2026-10);
-/// fall back to the legacy file.
-func claudeCredentials() -> [String: Any]? {
-    if let d = runProcess("/usr/bin/security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"]),
-       let obj = jsonObject(d.trimmingNewline()), let oa = obj["claudeAiOauth"] as? [String: Any] {
-        return oa
-    }
-    let legacy = NSHomeDirectory() + "/.claude/.credentials.json"
-    if let obj = jsonObject(FileManager.default.contents(atPath: legacy)),
-       let oa = obj["claudeAiOauth"] as? [String: Any] {
-        return oa
-    }
-    return nil
-}
-
 func fetchClaude() -> ProviderUsage {
-    let first = fetchClaudeOnce()
-    guard case .authExpired = first.state else { return first }
-    healClaudeToken()
-    return fetchClaudeOnce()
-}
-
-private func fetchClaudeOnce() -> ProviderUsage {
+    // refresh ~45 min before expiry so the bar never shows "login"
+    ClaudeAuth.ensureFresh()
     var u = ProviderUsage(id: .claude)
-    guard let oa = claudeCredentials(), let token = oa["accessToken"] as? String else {
-        u.state = .authExpired("login Claude Code"); return u
+    guard let oa = ClaudeAuth.current(), let token = oa["accessToken"] as? String else {
+        u.state = .authExpired("not logged in"); return u
     }
     switch oa["rateLimitTier"] as? String ?? "" {
     case let t where t.contains("20x"): u.plan = "Max 20x"
     case let t where t.contains("5x"): u.plan = "Max 5x"
     default: u.plan = (oa["subscriptionType"] as? String ?? "").capitalized
     }
-    if let exp = oa["expiresAt"] as? Double, Date(timeIntervalSince1970: exp / 1000) < Date() {
-        u.state = .authExpired("token expired"); return u
-    }
+    if ClaudeAuth.expiry(oa) < Date() { u.state = .authExpired("token expired"); return u }
     guard let obj = jsonObject(curl(["-H", "Authorization: Bearer " + token,
                                      "-H", "Accept: application/json",
                                      "-H", "anthropic-beta: oauth-2025-04-20",
@@ -184,7 +148,13 @@ private func fetchClaudeOnce() -> ProviderUsage {
     }
     if let err = obj["error"] as? [String: Any] {
         let type = err["type"] as? String ?? "error"
-        u.state = type.contains("auth") ? .authExpired("token expired") : .failed(type)
+        if type.contains("auth") {
+            // server says the token is dead even though expiresAt looked fine → rotate now
+            if ClaudeAuth.ensureFresh(force: true) { return fetchClaude() }
+            u.state = .authExpired("token expired")
+        } else {
+            u.state = .failed(type)
+        }
         return u
     }
     func window(_ key: String, _ label: String, _ len: TimeInterval) -> UsageWindow? {
@@ -193,12 +163,12 @@ private func fetchClaudeOnce() -> ProviderUsage {
     }
     u.session = window("five_hour", "5h", 5 * 3600)
     u.weekly = window("seven_day", "wk", 7 * 86400)
-    if let sonnet = window("seven_day_opus", "opus", 7 * 86400), sonnet.used > 0 {
-        u.extras.append("Opus wk \(Int((sonnet.used * 100).rounded()))%")
-    }
     if let extra = obj["extra_usage"] as? [String: Any], (extra["is_enabled"] as? Bool) == true,
        let used = extra["used_credits"] as? Double, let lim = extra["monthly_limit"] as? Double {
         u.extras.append(String(format: "extra $%.0f/$%.0f", used / 100, lim / 100))
+    }
+    if let exp = (oa["refreshTokenExpiresAt"] as? Double).map({ Date(timeIntervalSince1970: $0 / 1000) }) {
+        u.extras.append("login valid \(fmtLeft(exp.timeIntervalSinceNow))")
     }
     u.state = u.session == nil ? .failed("no 5h window") : .ok
     u.fetchedAt = Date()

@@ -259,6 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                 for u in self.usages where u.state != .ok { NSLog("[LimitBar] %@ state=%@", u.id.name, "\(u.state)") }
                 self.updateViews()
                 self.checkAlerts()
+                self.checkClaudeLogin()
             }
         }
     }
@@ -333,6 +334,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                 }
                 lastAlert[key] = level
             }
+        }
+    }
+
+    private var lastLoginWarn = Date.distantPast
+    private func checkClaudeLogin() {
+        guard config.notifications, Date().timeIntervalSince(lastLoginWarn) > 86400,
+              let ms = ClaudeAuth.current()?["refreshTokenExpiresAt"] as? Double else { return }
+        let left = Date(timeIntervalSince1970: ms / 1000).timeIntervalSinceNow
+        if left < 3 * 86400 {
+            lastLoginWarn = Date()
+            notify("Claude login expires in \(fmtLeft(left))", "Run `claude auth login` once to renew for another 30 days.")
         }
     }
 
@@ -512,6 +524,13 @@ func runInTerminal(_ cmd: String) {
 }
 
 // MARK: - main
+
+// test hook: `LimitBar --refresh-claude-now` rotates the token once and exits
+if CommandLine.arguments.contains("--refresh-claude-now") {
+    let ok = ClaudeAuth.ensureFresh(force: true)
+    print("refresh:", ok, ClaudeAuth.lastStatus, "valid until", ClaudeAuth.expiry(ClaudeAuth.current()))
+    exit(ok ? 0 : 1)
+}
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
