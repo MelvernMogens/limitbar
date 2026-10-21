@@ -51,8 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         wireTaps()
         present()
         reloadControlStrip()
-        // first reload can race the modal bar coming up — repeat once it has settled
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { reloadControlStrip() }
+        // first reload can race the modal bar and login items (Pock etc.) — repeat once things settle
+        for d in [2.0, 8.0, 20.0] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { reloadControlStrip() } }
 
         let nc = NSWorkspace.shared.notificationCenter
         nc.addObserver(self, selector: #selector(appChanged), name: NSWorkspace.didActivateApplicationNotification, object: nil)
@@ -107,6 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         refreshUsage()
         refreshSessions()
         present()
+        // after sleep the right control strip can come back empty — re-render it once the bar is up
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { reloadControlStrip() }
     }
 
     // MARK: touch bar plumbing
