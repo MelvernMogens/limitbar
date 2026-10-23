@@ -1,3 +1,4 @@
 build/
-LimitBar-v1-backup/
+.build/
 .DS_Store
+*.iconset/
