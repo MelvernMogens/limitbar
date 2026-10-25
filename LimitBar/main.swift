@@ -10,7 +10,7 @@ import UserNotifications
 enum Mode { case overview, detail(ProviderID), sessions }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
-    static let version = "2.0"
+    static let version = "2.1"
 
     private let trayID = NSTouchBarItem.Identifier("com.melvern.limitbar.tray")
     private var touchBar: NSTouchBar?
@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let extrasChip = ExtrasChip()
     private let strip = SessionsStrip()
     private let statsChip = StatsChip()
+    private let localChip = LocalAIChip()
+    private let localAI = LocalAI()
     private let sampler = StatsSampler()
     private var statsTimer: Timer?
 
@@ -68,9 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             else { self.mode = .overview }
             self.rebuildBar()
         }
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.localai"), object: nil, queue: .main) { [weak self] _ in
+            self?.localAI.toggle()
+        }
         startTimers()
         refreshUsage()
         refreshSessions()
+        localAI.poll()
         NSLog("[LimitBar] launched v%@ pid %d", AppDelegate.version, ProcessInfo.processInfo.processIdentifier)
     }
 
@@ -82,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         sessionTimer?.invalidate()
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.refreshSessions()
+            self?.localAI.poll()
         }
         // 1s tick only repaints (countdowns, heartbeat) — no I/O
         tickTimer?.invalidate()
@@ -163,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch mode {
         case .overview:
             tb.defaultItemIdentifiers = ProviderID.allCases.map { id("p.\($0.rawValue)") }
-                + [.fixedSpaceSmall, id("hermes"), id("stats")]
+                + [.fixedSpaceSmall, id("hermes"), id("local"), id("stats")]
         case .detail(let pid):
             let hasWeek = usages.first { $0.id == pid }?.weekly != nil
             tb.defaultItemIdentifiers = [id("back"), id("header"), id("w.session")] + (hasWeek ? [id("w.weekly")] : []) + [id("extras")]
@@ -179,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch key {
         case "hermes": view = hermesChip
         case "stats": view = statsChip
+        case "local": view = localChip
         case "back": view = backChip
         case "header": view = headerChip
         case "w.session": view = sessionWin
@@ -210,6 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             }
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
+        localChip.onTap = { [weak self] in self?.localAI.toggle() }
+        localAI.onChange = { [weak self] s in self?.localChip.aiState = s }
         statsChip.onTap = { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")) }
         backChip.onTap = { [weak self] in self?.mode = .overview; self?.rebuildBar() }
         headerChip.onTap = { [weak self] in self?.refreshUsage() }
@@ -286,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch mode {
         case .overview:
             hermesChip.sessions = sessions
+            if case .busy = localChip.aiState { localChip.needsDisplay = true }
             providerChips.values.forEach { $0.needsDisplay = true }
         case .detail: updateViews()
         case .sessions: break
@@ -467,6 +478,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             menu.addItem(it)
         }
         menu.addItem(.separator())
+        let localTitle: String = {
+            switch localAI.state {
+            case .off: return "Local AI: off — turn on"
+            case .on(let mem): return "Local AI: on (\(mem)) — turn off"
+            case .busy(let w): return "Local AI: \(w)…"
+            case .partial: return "Local AI: half-running — reset"
+            }
+        }()
+        menu.addItem(withTitle: localTitle, action: #selector(toggleLocalAI), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Refresh", action: #selector(refreshNow), keyEquivalent: "r").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -502,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     @objc private func menuFixAuth(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let p = ProviderID(rawValue: raw) { fixAuth(p) }
     }
+    @objc private func toggleLocalAI() { localAI.toggle() }
     @objc private func openSettings() { settings?.show() }
     @objc private func refreshNow() { refreshUsage(); refreshSessions() }
 
