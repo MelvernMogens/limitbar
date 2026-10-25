@@ -51,13 +51,19 @@ final class LocalAI {
             let new: LocalAIState
             if let ps, let health {
                 var mem = "idle"
+                let id = ((try? JSONSerialization.jsonObject(with: health)) as? [String: Any])?["model"] as? String ?? ""
+                let model = self.models.first { $0.id == id }
                 if let j = try? JSONSerialization.jsonObject(with: ps) as? [String: Any],
                    let ms = j["models"] as? [[String: Any]], !ms.isEmpty {
-                    let bytes = ms.compactMap { ($0["size_vram"] as? Double) ?? ($0["size"] as? Double) }.reduce(0, +)
-                    mem = String(format: "%.1f GB", bytes / 1_073_741_824)
+                    // Ollama 0.40+ memory-maps weights and reports only the runtime part in /api/ps,
+                    // so show the measured real footprint from models.json instead.
+                    if let ram = model?.ram, !ram.isEmpty { mem = ram }
+                    else {
+                        let bytes = ms.compactMap { ($0["size_vram"] as? Double) ?? ($0["size"] as? Double) }.reduce(0, +)
+                        mem = String(format: "%.1f GB", bytes / 1_073_741_824)
+                    }
                 }
-                let id = ((try? JSONSerialization.jsonObject(with: health)) as? [String: Any])?["model"] as? String ?? ""
-                let name = self.models.first { $0.id == id }?.short ?? (id.isEmpty ? "on" : id)
+                let name = model?.short ?? (id.isEmpty ? "on" : id)
                 new = .on(model: name, mem: mem)
             } else if ps != nil || health != nil {
                 new = .partial

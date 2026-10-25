@@ -10,7 +10,7 @@ import UserNotifications
 enum Mode { case overview, detail(ProviderID), sessions, localPick }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
-    static let version = "2.2"
+    static let version = "2.3"
 
     private let trayID = NSTouchBarItem.Identifier("com.melvern.limitbar.tray")
     private var touchBar: NSTouchBar?
