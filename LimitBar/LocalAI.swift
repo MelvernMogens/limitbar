@@ -52,6 +52,7 @@ final class LocalAI {
             if let ps, let health {
                 var mem = "idle"
                 let id = ((try? JSONSerialization.jsonObject(with: health)) as? [String: Any])?["model"] as? String ?? ""
+                if !id.isEmpty && !self.models.contains(where: { $0.id == id }) { self.reloadModels() }  // models.json changed
                 let model = self.models.first { $0.id == id }
                 if let j = try? JSONSerialization.jsonObject(with: ps) as? [String: Any],
                    let ms = j["models"] as? [[String: Any]], !ms.isEmpty {
@@ -63,7 +64,7 @@ final class LocalAI {
                         mem = String(format: "%.1f GB", bytes / 1_073_741_824)
                     }
                 }
-                let name = model?.short ?? (id.isEmpty ? "on" : id)
+                let name = model?.label ?? (id.isEmpty ? "on" : id)
                 new = .on(model: name, mem: mem)
             } else if ps != nil || health != nil {
                 new = .partial
