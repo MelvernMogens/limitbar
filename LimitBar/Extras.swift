@@ -204,3 +204,18 @@ final class ToolsHeader: Chip {
         a.draw(at: NSPoint(x: 8, y: bounds.midY - s.height / 2))
     }
 }
+
+
+/// Label at the start of the usage picker row.
+final class UsagePickHeader: Chip {
+    private let a = attr("Show on bar:", 11, .medium, dimText)
+    override init() { super.init(); setWidth(a.size().width + 16) }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isOpaque: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.setFill()
+        bounds.fill()
+        let s = a.size()
+        a.draw(at: NSPoint(x: 8, y: bounds.midY - s.height / 2))
+    }
+}

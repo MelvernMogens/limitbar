@@ -7,7 +7,7 @@ import UserNotifications
 //  detail   : [‹][logo plan][5h ▬▬|▬ pace][weekly ▬|▬▬ pace][extras]
 //  sessions : [‹][● working …][✓ done …][· idle …]  (swipe, tap = open in Hermes)
 
-enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick }
+enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick, usagePick }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
     static let version = "2.4"
@@ -46,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let toolsChip = ToolsChip()
     private let toolsHeader = ToolsHeader()
     private let toolsStrip = ToolsStrip()
+    private let usageHeader = UsagePickHeader()
+    private var pinnedProvider: ProviderID {
+        get { ProviderID(rawValue: UserDefaults.standard.string(forKey: "pinnedProvider") ?? "") ?? .claude }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "pinnedProvider") }
+    }
     private var toolChips: [String: ToolToggleChip] = [:]
     private var modelChips: [String: LocalModelChip] = [:]
     private let sampler = StatsSampler()
@@ -73,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.mode"), object: nil, queue: .main) { [weak self] n in
             guard let self, let s = n.object as? String else { return }
             if s == "sessions" { self.mode = .sessions }
+            else if s == "usage" { self.mode = .usagePick }
             else if s.hasPrefix("detail."), let p = ProviderID(rawValue: String(s.dropFirst(7))) { self.mode = .detail(p) }
             else { self.mode = .overview }
             self.rebuildBar()
@@ -189,8 +195,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         guard let tb = touchBar else { return }
         switch mode {
         case .overview:
-            tb.defaultItemIdentifiers = ProviderID.allCases.map { id("p.\($0.rawValue)") }
+            // one usage chip (the AI picked to show); tap it to see all three
+            tb.defaultItemIdentifiers = [id("p.\(pinnedProvider.rawValue)")]
                 + [.fixedSpaceSmall, id("local"), id("tools"), id("stats")]
+        case .usagePick:
+            tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") }
         case .detail(let pid):
             let hasWeek = usages.first { $0.id == pid }?.weekly != nil
             tb.defaultItemIdentifiers = [id("back"), id("header"), id("w.session")] + (hasWeek ? [id("w.weekly")] : []) + [id("extras")]
@@ -214,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "lp.header": view = localHeader
         case "tools": view = toolsChip
         case "tools.header": view = toolsHeader
+        case "up.header": view = usageHeader
         case "tools.strip":
             toolsStrip.update(extras.tools.compactMap { toolChip($0.key) })
             view = toolsStrip
@@ -251,7 +261,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                     self.fixAuth(pid)
                     return
                 }
-                self.mode = .detail(pid)
+                switch self.mode {
+                case .usagePick:
+                    if pid == self.pinnedProvider {
+                        self.mode = .detail(pid)          // tap the shown one again: its details
+                    } else {
+                        self.pinnedProvider = pid         // tap another: show that one on the main bar
+                        self.mode = .overview
+                    }
+                default:
+                    self.mode = .usagePick                // main bar: open the three-AI picker
+                }
                 self.rebuildBar()
             }
         }
@@ -381,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             if case .busy = localChip.aiState { localChip.needsDisplay = true }
             providerChips.values.forEach { $0.needsDisplay = true }
         case .detail: updateViews()
+        case .usagePick: providerChips.values.forEach { $0.needsDisplay = true }
         case .sessions, .localPick, .toolsPick: break
         }
         updateStatusIcon()
