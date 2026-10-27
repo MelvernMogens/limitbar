@@ -15,7 +15,8 @@ final class Extras {
                  ExtraTool(key: "image", title: "Image", detail: "FLUX.2 Klein"),
                  ExtraTool(key: "upscale", title: "Upscale", detail: "SeedVR2"),
                  ExtraTool(key: "video", title: "Video", detail: "local video"),
-                 ExtraTool(key: "music", title: "Music", detail: "ACE-Step")]
+                 ExtraTool(key: "music", title: "Music", detail: "ACE-Step"),
+                 ExtraTool(key: "3d", title: "3D", detail: "Hunyuan3D")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -54,7 +55,7 @@ final class Extras {
         if on.isEmpty { return "all off" }
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
         if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
-        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS"]
+        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D"]
         return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")
     }
 }
