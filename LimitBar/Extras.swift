@@ -21,7 +21,12 @@ final class Extras {
                  ExtraTool(key: "voiceclean", title: "Clean voice", detail: "noise removal"),
                  ExtraTool(key: "stems", title: "Vocal split", detail: "vocal / music split"),
                  ExtraTool(key: "captions", title: "Captions", detail: "auto subtitles"),
-                 ExtraTool(key: "search", title: "File search", detail: "local search")]
+                 ExtraTool(key: "search", title: "File search", detail: "local search"),
+                 ExtraTool(key: "reframe", title: "Reframe", detail: "16:9 to vertical"),
+                 ExtraTool(key: "videobg", title: "Video BG", detail: "video background removal"),
+                 ExtraTool(key: "videoupscale", title: "Video upscale", detail: "sharpen video"),
+                 ExtraTool(key: "voiceclone", title: "Voice clone", detail: "your voice"),
+                 ExtraTool(key: "dub", title: "Dubbing", detail: "ID / EN dub")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -61,7 +66,8 @@ final class Extras {
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
         if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
         let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D",
-                     "bgremove": "CUT", "voiceclean": "CLN", "stems": "STM", "captions": "CAP", "search": "SRCH"]
+                     "bgremove": "CUT", "voiceclean": "CLN", "stems": "STM", "captions": "CAP", "search": "SRCH",
+                     "reframe": "RFR", "videobg": "VBG", "videoupscale": "VUP", "voiceclone": "VOX", "dub": "DUB"]
         return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")
     }
 }
