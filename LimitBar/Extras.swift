@@ -7,7 +7,7 @@ struct ExtraTool {
     let key: String, title: String, detail: String
     /// small emoji shown on the toggle so tools are easy to tell apart
     var icon: String { ExtraTool.icons[key] ?? "•" }
-    static let icons = ["stt": "🎙️", "tts": "🔊", "image": "🎨", "upscale": "🔍", "video": "🎬", "music": "🎵",
+    static let icons = ["offline": "✈️", "stt": "🎙️", "tts": "🔊", "image": "🎨", "upscale": "🔍", "video": "🎬", "music": "🎵",
                         "3d": "🧊", "bgremove": "✂️", "voiceclean": "🧹", "stems": "🎚️", "captions": "💬",
                         "search": "🗂️", "reframe": "📱", "videobg": "🪄", "videoupscale": "📺",
                         "voiceclone": "🗣️", "dub": "🌐"]
@@ -16,7 +16,8 @@ struct ExtraTool {
 final class Extras {
     static let dir = NSString(string: "~/Code/local-ai").expandingTildeInPath
     // Add future tools here (tts, image gen, ...) once their on/off is wired in the extras script.
-    let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
+    let tools = [ExtraTool(key: "offline", title: "Offline mode", detail: "no Wi-Fi: skip online add-ons"),
+                 ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
                  ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto"),
                  ExtraTool(key: "image", title: "Image gen", detail: "FLUX.2 Klein"),
                  ExtraTool(key: "upscale", title: "Upscale", detail: "SeedVR2"),
@@ -71,7 +72,7 @@ final class Extras {
         if on.isEmpty { return "all off" }
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
         if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
-        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D",
+        let short = ["offline": "OFF", "stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D",
                      "bgremove": "CUT", "voiceclean": "CLN", "stems": "STM", "captions": "CAP", "search": "SRCH",
                      "reframe": "RFR", "videobg": "VBG", "videoupscale": "VUP", "voiceclone": "VOX", "dub": "DUB"]
         return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")

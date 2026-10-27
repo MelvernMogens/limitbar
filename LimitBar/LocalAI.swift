@@ -129,7 +129,7 @@ final class LocalAIChip: Chip {
             bottom = attr("ollama only", 9, .medium, faintText)
             border = nil
         }
-        setWidth(22 + max(top.size().width, bottom.size().width) + 10)
+        setWidth(21 + max(top.size().width, bottom.size().width) + 7)
     }
 
     override func drawContent(_ r: NSRect) {
@@ -151,7 +151,7 @@ final class LocalAIChip: Chip {
             p.lineWidth = 1.2
             p.stroke()
         }
-        drawTwoLines(top, bottom, x: r.minX + 22, in: r)
+        drawTwoLines(top, bottom, x: r.minX + 21, in: r)
     }
 }
 
@@ -166,7 +166,7 @@ final class LocalModelChip: Chip {
         bottom = attr(m.ram.isEmpty ? "start" : "start · \(m.ram)", 9, .medium, localPurple, mono: true)
         super.init()
         border = localPurple.withAlphaComponent(0.3)
-        setWidth(22 + max(top.size().width, bottom.size().width) + 10)
+        setWidth(21 + max(top.size().width, bottom.size().width) + 7)
     }
     required init?(coder: NSCoder) { fatalError() }
 

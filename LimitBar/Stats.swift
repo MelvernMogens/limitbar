@@ -119,12 +119,12 @@ final class StatsChip: Chip {
             c.append(Col(value: attr(pct(b), 12, .bold, bc, mono: true), label: attr(lab, 9, .medium, dimText), frac: b, color: bc))
         }
         cols = c
-        let w = cols.reduce(CGFloat(7)) { $0 + 4 + 4 + max($1.value.size().width, $1.label.size().width) + 8 }
+        let w = cols.reduce(CGFloat(6)) { $0 + 4 + 4 + max($1.value.size().width, $1.label.size().width) + 5 }
         setWidth(w)
     }
 
     override func drawContent(_ r: NSRect) {
-        var x = r.minX + 7
+        var x = r.minX + 6
         for col in cols {
             // vertical mini meter
             let track = NSRect(x: x, y: r.midY - 9, width: 4, height: 18)
@@ -135,7 +135,7 @@ final class StatsChip: Chip {
             NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: 4, height: h), xRadius: 2, yRadius: 2).fill()
             let tx = x + 4 + 4
             drawTwoLines(col.value, col.label, x: tx, in: r)
-            x = tx + max(col.value.size().width, col.label.size().width) + 8
+            x = tx + max(col.value.size().width, col.label.size().width) + 5
         }
     }
 }
