@@ -16,7 +16,12 @@ final class Extras {
                  ExtraTool(key: "upscale", title: "Upscale", detail: "SeedVR2"),
                  ExtraTool(key: "video", title: "Video", detail: "local video"),
                  ExtraTool(key: "music", title: "Music", detail: "ACE-Step"),
-                 ExtraTool(key: "3d", title: "3D", detail: "Hunyuan3D")]
+                 ExtraTool(key: "3d", title: "3D", detail: "Hunyuan3D"),
+                 ExtraTool(key: "bgremove", title: "Cutout", detail: "background remover"),
+                 ExtraTool(key: "voiceclean", title: "Clean voice", detail: "noise removal"),
+                 ExtraTool(key: "stems", title: "Stems", detail: "vocal / music split"),
+                 ExtraTool(key: "captions", title: "Captions", detail: "auto subtitles"),
+                 ExtraTool(key: "search", title: "File search", detail: "local search")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -55,7 +60,8 @@ final class Extras {
         if on.isEmpty { return "all off" }
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
         if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
-        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D"]
+        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D",
+                     "bgremove": "CUT", "voiceclean": "CLN", "stems": "STM", "captions": "CAP", "search": "SRCH"]
         return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")
     }
 }
@@ -111,7 +117,9 @@ final class ToolToggleChip: Chip {
         bottom = attr(busy ? "switching…" : (on ? "on" : "off"), 9, .medium,
                       busy ? dimText : (on ? toolTeal : faintText))
         border = on ? toolTeal.withAlphaComponent(0.45) : NSColor(white: 1, alpha: 0.08)
-        setWidth(34 + max(top.size().width, bottom.size().width) + 8)
+        // fixed width (widest possible subtitle) so the chip never resizes inside the scrolling strip
+        let widest = attr("switching…", 9, .medium, dimText).size().width
+        setWidth(34 + max(top.size().width, widest) + 8)
         needsDisplay = true
     }
 
@@ -125,6 +133,45 @@ final class ToolToggleChip: Chip {
         let knobX = on ? track.maxX - 9 : track.minX + 1
         NSBezierPath(ovalIn: NSRect(x: knobX, y: track.minY + 1, width: 8, height: 8)).fill()
         drawTwoLines(top, bottom, x: r.minX + 30, in: r)
+    }
+}
+
+/// Swipeable row with every tool toggle (more tools than fit on the Touch Bar at once).
+final class ToolsStrip: NSScrollView {
+    private let stack = NSStackView()
+    private var stripWidth: CGFloat = 200
+    var maxWidth: CGFloat = 640
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        hasHorizontalScroller = false
+        hasVerticalScroller = false
+        drawsBackground = false
+        horizontalScrollElasticity = .allowed
+        verticalScrollElasticity = .none
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.alignment = .centerY
+        documentView = stack
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: stripWidth, height: 30) }
+
+    func update(_ chips: [ToolToggleChip]) {
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for c in chips {
+            c.translatesAutoresizingMaskIntoConstraints = false
+            c.widthAnchor.constraint(equalToConstant: c.chipWidth).isActive = true
+            c.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            stack.addArrangedSubview(c)
+        }
+        let content = chips.reduce(CGFloat(0)) { $0 + $1.chipWidth } + stack.spacing * CGFloat(max(0, chips.count - 1))
+        stack.frame = NSRect(x: 0, y: 0, width: content, height: 30)
+        stripWidth = min(maxWidth, content)
+        setFrameSize(NSSize(width: stripWidth, height: 30))
+        invalidateIntrinsicContentSize()
+        contentView.scroll(to: .zero)
     }
 }
 

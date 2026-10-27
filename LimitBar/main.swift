@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let extras = Extras()
     private let toolsChip = ToolsChip()
     private let toolsHeader = ToolsHeader()
+    private let toolsStrip = ToolsStrip()
     private var toolChips: [String: ToolToggleChip] = [:]
     private var modelChips: [String: LocalModelChip] = [:]
     private let sampler = StatsSampler()
@@ -198,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case .localPick:
             tb.defaultItemIdentifiers = [id("back"), id("lp.header")] + localAI.models.map { id("lm.\($0.id)") }
         case .toolsPick:
-            tb.defaultItemIdentifiers = [id("back")] + extras.tools.map { id("tool.\($0.key)") }
+            tb.defaultItemIdentifiers = [id("back"), id("tools.strip")]
         }
         updateViews()
     }
@@ -213,6 +214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "lp.header": view = localHeader
         case "tools": view = toolsChip
         case "tools.header": view = toolsHeader
+        case "tools.strip":
+            toolsStrip.update(extras.tools.compactMap { toolChip($0.key) })
+            view = toolsStrip
         case "back": view = backChip
         case "header": view = headerChip
         case "w.session": view = sessionWin
