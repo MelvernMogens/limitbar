@@ -126,7 +126,7 @@ final class LocalAIChip: Chip {
             border = nil
         case .partial:
             top = attr("Local AI", 11, .semibold, dimText)
-            bottom = attr("ollama only · pick", 9, .medium, faintText)
+            bottom = attr("ollama only", 9, .medium, faintText)
             border = nil
         }
         setWidth(22 + max(top.size().width, bottom.size().width) + 10)

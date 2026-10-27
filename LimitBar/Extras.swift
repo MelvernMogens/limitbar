@@ -5,6 +5,12 @@ import AppKit
 
 struct ExtraTool {
     let key: String, title: String, detail: String
+    /// small emoji shown on the toggle so tools are easy to tell apart
+    var icon: String { ExtraTool.icons[key] ?? "•" }
+    static let icons = ["stt": "🎙️", "tts": "🔊", "image": "🎨", "upscale": "🔍", "video": "🎬", "music": "🎵",
+                        "3d": "🧊", "bgremove": "✂️", "voiceclean": "🧹", "stems": "🎚️", "captions": "💬",
+                        "search": "🗂️", "reframe": "📱", "videobg": "🪄", "videoupscale": "📺",
+                        "voiceclone": "🗣️", "dub": "🌐"]
 }
 
 final class Extras {
@@ -125,7 +131,7 @@ final class ToolToggleChip: Chip {
         border = on ? toolTeal.withAlphaComponent(0.45) : NSColor(white: 1, alpha: 0.08)
         // fixed width (widest possible subtitle) so the chip never resizes inside the scrolling strip
         let widest = attr("switching…", 9, .medium, dimText).size().width
-        setWidth(34 + max(top.size().width, widest) + 8)
+        setWidth(56 + max(top.size().width, widest) + 8)
         needsDisplay = true
     }
 
@@ -138,7 +144,10 @@ final class ToolToggleChip: Chip {
         NSColor.white.setFill()
         let knobX = on ? track.maxX - 9 : track.minX + 1
         NSBezierPath(ovalIn: NSRect(x: knobX, y: track.minY + 1, width: 8, height: 8)).fill()
-        drawTwoLines(top, bottom, x: r.minX + 30, in: r)
+        let icon = NSAttributedString(string: tool.icon, attributes: [.font: NSFont.systemFont(ofSize: 13)])
+        let isz = icon.size()
+        icon.draw(at: NSPoint(x: r.minX + 30, y: r.midY - isz.height / 2))
+        drawTwoLines(top, bottom, x: r.minX + 53, in: r)
     }
 }
 
