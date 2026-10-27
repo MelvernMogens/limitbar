@@ -7,7 +7,7 @@ import UserNotifications
 //  detail   : [‹][logo plan][5h ▬▬|▬ pace][weekly ▬|▬▬ pace][extras]
 //  sessions : [‹][● working …][✓ done …][· idle …]  (swipe, tap = open in Hermes)
 
-enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick, usagePick }
+enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick, usagePick, petPick }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
     static let version = "2.4"
@@ -47,6 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let toolsHeader = ToolsHeader()
     private let toolsStrip = ToolsStrip()
     private let usageHeader = UsagePickHeader()
+    private let petChip = PetChip()
+    private let petStatus = PetStatusChip()
+    private let petFeed = PetActionChip("🍖", "Feed")
+    private let petPlay = PetActionChip("🎾", "Play")
+    private let petPat = PetActionChip("✋", "Pet")
+    private let petMed = PetActionChip("💊", "Medicine")
     private var pinnedProvider: ProviderID {
         get { ProviderID(rawValue: UserDefaults.standard.string(forKey: "pinnedProvider") ?? "") ?? .claude }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "pinnedProvider") }
@@ -79,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             guard let self, let s = n.object as? String else { return }
             if s == "sessions" { self.mode = .sessions }
             else if s == "usage" { self.mode = .usagePick }
+            else if s == "pet" { self.mode = .petPick }
             else if s.hasPrefix("detail."), let p = ProviderID(rawValue: String(s.dropFirst(7))) { self.mode = .detail(p) }
             else { self.mode = .overview }
             self.rebuildBar()
@@ -90,6 +97,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             if s.hasPrefix("on:") { self.localAI.start(String(s.dropFirst(3))) }
             else if s == "off" { self.localAI.stop() }
             else { self.localChipTapped() }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.pet"), object: nil, queue: .main) { [weak self] n in
+            // test hook: object feed|play|pat|med
+            switch n.object as? String ?? "" {
+            case "feed": Pet.shared.feed()
+            case "play": Pet.shared.play()
+            case "pat": Pet.shared.pat()
+            case "med": Pet.shared.medicine()
+            default: break
+            }
+            self?.mode = .overview; self?.rebuildBar()
         }
         DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.tools"), object: nil, queue: .main) { [weak self] n in
             // object: "pick" opens the AI Tools row; "<tool key>" toggles that tool (test hook)
@@ -197,7 +215,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case .overview:
             // one usage chip (the AI picked to show); tap it to see all three
             tb.defaultItemIdentifiers = [id("p.\(pinnedProvider.rawValue)")]
-                + [.fixedSpaceSmall, id("local"), id("tools"), id("stats")]
+                + [.fixedSpaceSmall, id("local"), id("tools"), id("stats"), id("pet")]
+        case .petPick:
+            tb.defaultItemIdentifiers = [id("back"), id("pet.status"), id("pet.feed"), id("pet.play"), id("pet.pat")]
+                + (Pet.shared.sick ? [id("pet.med")] : [])
         case .usagePick:
             tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") }
         case .detail(let pid):
@@ -224,6 +245,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "tools": view = toolsChip
         case "tools.header": view = toolsHeader
         case "up.header": view = usageHeader
+        case "pet": view = petChip
+        case "pet.status": view = petStatus
+        case "pet.feed": view = petFeed
+        case "pet.play": view = petPlay
+        case "pet.pat": view = petPat
+        case "pet.med": view = petMed
         case "tools.strip":
             toolsStrip.update(extras.tools.compactMap { toolChip($0.key) })
             view = toolsStrip
@@ -246,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         // If the bar ever runs out of room macOS drops items by priority; with equal priorities it dropped
         // everything but the first chip. Usage chips stay, then Local AI / AI Tools, stats go first.
         switch key {
-        case "hermes": item.visibilityPriority = .low
+        case "hermes", "pet": item.visibilityPriority = .low
         case "local", "tools", "stats": item.visibilityPriority = .normal
         default: item.visibilityPriority = .high
         }
@@ -276,6 +303,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             }
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
+        petChip.onTap = { [weak self] in self?.mode = .petPick; self?.rebuildBar() }
+        let care: [(PetActionChip, () -> Void)] = [(petFeed, { Pet.shared.feed() }), (petPlay, { Pet.shared.play() }),
+                                                   (petPat, { Pet.shared.pat() }), (petMed, { Pet.shared.medicine() })]
+        for (chip, act) in care {
+            chip.onTap = { [weak self] in act(); self?.mode = .overview; self?.rebuildBar() }  // back to watch it react
+        }
         localChip.onTap = { [weak self] in self?.localChipTapped() }
         toolsChip.extras = extras
         toolsChip.onTap = { [weak self] in
@@ -402,6 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             providerChips.values.forEach { $0.needsDisplay = true }
         case .detail: updateViews()
         case .usagePick: providerChips.values.forEach { $0.needsDisplay = true }
+        case .petPick: petStatus.needsDisplay = true
         case .sessions, .localPick, .toolsPick: break
         }
         updateStatusIcon()
