@@ -10,9 +10,12 @@ struct ExtraTool {
 final class Extras {
     static let dir = NSString(string: "~/Code/local-ai").expandingTildeInPath
     // Add future tools here (tts, image gen, ...) once their on/off is wired in the extras script.
-    let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
-                 ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto"),
-                 ExtraTool(key: "image", title: "Image gen", detail: "FLUX.2 Klein")]
+    let tools = [ExtraTool(key: "stt", title: "Whisper", detail: "Whisper · voice messages"),
+                 ExtraTool(key: "tts", title: "Piper", detail: "Piper · ID + EN auto"),
+                 ExtraTool(key: "image", title: "Image", detail: "FLUX.2 Klein"),
+                 ExtraTool(key: "upscale", title: "Upscale", detail: "SeedVR2"),
+                 ExtraTool(key: "video", title: "Video", detail: "local video"),
+                 ExtraTool(key: "music", title: "Music", detail: "ACE-Step")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -50,7 +53,9 @@ final class Extras {
         let on = tools.filter { isOn($0.key) }
         if on.isEmpty { return "all off" }
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
-        return on.map { $0.key == "image" ? "IMG" : $0.key.uppercased() }.joined(separator: " · ")
+        if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
+        let short = ["stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS"]
+        return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")
     }
 }
 
@@ -102,23 +107,23 @@ final class ToolToggleChip: Chip {
         let on = extras?.isOn(tool.key) ?? false
         let busy = extras?.busy == tool.key
         top = attr(tool.title, 11, .semibold, .white)
-        bottom = attr(busy ? "switching…" : (on ? "on · tap to turn off" : "off · tap to turn on"), 9, .medium,
+        bottom = attr(busy ? "switching…" : (on ? "on" : "off"), 9, .medium,
                       busy ? dimText : (on ? toolTeal : faintText))
         border = on ? toolTeal.withAlphaComponent(0.45) : NSColor(white: 1, alpha: 0.08)
-        setWidth(40 + max(top.size().width, bottom.size().width) + 10)
+        setWidth(34 + max(top.size().width, bottom.size().width) + 8)
         needsDisplay = true
     }
 
     override func drawContent(_ r: NSRect) {
         // small switch glyph
         let on = extras?.isOn(tool.key) ?? false
-        let track = NSRect(x: r.minX + 8, y: r.midY - 5, width: 20, height: 10)
+        let track = NSRect(x: r.minX + 7, y: r.midY - 5, width: 18, height: 10)
         (on ? toolTeal.withAlphaComponent(0.85) : NSColor(white: 0.25, alpha: 1)).setFill()
         NSBezierPath(roundedRect: track, xRadius: 5, yRadius: 5).fill()
         NSColor.white.setFill()
         let knobX = on ? track.maxX - 9 : track.minX + 1
         NSBezierPath(ovalIn: NSRect(x: knobX, y: track.minY + 1, width: 8, height: 8)).fill()
-        drawTwoLines(top, bottom, x: r.minX + 36, in: r)
+        drawTwoLines(top, bottom, x: r.minX + 30, in: r)
     }
 }
 

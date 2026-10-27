@@ -198,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case .localPick:
             tb.defaultItemIdentifiers = [id("back"), id("lp.header")] + localAI.models.map { id("lm.\($0.id)") }
         case .toolsPick:
-            tb.defaultItemIdentifiers = [id("back"), id("tools.header")] + extras.tools.map { id("tool.\($0.key)") }
+            tb.defaultItemIdentifiers = [id("back")] + extras.tools.map { id("tool.\($0.key)") }
         }
         updateViews()
     }
