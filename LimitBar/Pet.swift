@@ -245,7 +245,15 @@ final class PetChip: Chip {
     private var lastAct: Pet.Act? = nil
     private var front = false
     private var chaseV: CGFloat = 0
-    private var poopXs: [CGFloat] = []      // where the poops are in the yard              // turned toward you (idle moments, being petted)
+    private var poopXs: [CGFloat] = []      // where the poops are in the yard
+    // smoothed pose: every change eases in over ~0.4 s instead of snapping
+    private var sLegH: CGFloat = 5.2, sHX: CGFloat = 0, sHY: CGFloat = 0, sTail: CGFloat = 0.7, sWagAmp: CGFloat = 0.35
+    private var sWagSpeed = 7.0, wagPhase = 0.0
+    private var turnS: CGFloat = 0           // 0 = side view, 1 = facing you (turns through a squash)
+    private var dirS: CGFloat = 1            // facing direction, eased so turning around is a flip, not a pop
+    private var bowlA: CGFloat = 0, ballA: CGFloat = 0, bowlX: CGFloat = 0
+    private var settling = false
+    private var wasAsleep = false, yawnUntil = 0.0, stretchUntil = 0.0              // turned toward you (idle moments, being petted)
 
     override init() {
         super.init()
@@ -255,13 +263,14 @@ final class PetChip: Chip {
     required init?(coder: NSCoder) { fatalError() }
 
     private var moving: Bool {
-        pet.reaction != nil || pet.saying != nil || (!(pet.asleep || pet.sick) && Date() >= pauseUntil) || !particles.isEmpty || jumpY > 0
+        settling || t < yawnUntil || t < stretchUntil || pet.reaction != nil || pet.saying != nil || (!(pet.asleep || pet.sick) && Date() >= pauseUntil) || !particles.isEmpty || jumpY > 0
     }
 
     private func step() {
         tickN += 1
         let dt = 1.0 / 12.0
         t += dt
+        wagPhase += dt * sWagSpeed
         if tickN % 24 == 0 { pet.update() }
         let act = pet.reaction?.kind
         if act != lastAct { startAct(act); lastAct = act }
@@ -336,7 +345,6 @@ final class PetChip: Chip {
     }
 
     private func startAct(_ a: Pet.Act?) {
-        particles.removeAll()
         front = (a == .pat || a == .med || a == .greet || a == .mail || a == .dress)
         if a == .play {
             ballX = min(max(x + (dir > 0 ? dogW + 16 : -16), 8), yard - 12)
@@ -358,8 +366,12 @@ final class PetChip: Chip {
         let running = kind == .play || kind == .zoom
 
         // props behind the dog
-        if kind == .feed {
-            let bx = dir > 0 ? r.minX + x + dogW - 3 : r.minX + x - 9
+        if kind == .feed { bowlX = dir > 0 ? x + dogW - 3 : x - 9 }
+        bowlA += ((kind == .feed ? 1 : 0) - bowlA) * 0.25
+        if bowlA > 0.03, let g = NSGraphicsContext.current?.cgContext {
+            g.saveGState(); defer { g.restoreGState() }
+            g.setAlpha(min(1, bowlA))
+            let bx = r.minX + bowlX
             NSColor(srgbRed: 0.86, green: 0.26, blue: 0.28, alpha: 1).setFill()
             NSBezierPath(roundedRect: NSRect(x: bx, y: r.minY + 2.5, width: 12, height: 4.5), xRadius: 2.2, yRadius: 2.2).fill()
             NSColor(srgbRed: 1.0, green: 0.55, blue: 0.55, alpha: 1).setFill()                   // rim highlight
@@ -391,7 +403,8 @@ final class PetChip: Chip {
         let swing: CGFloat = walking || running ? CGFloat(sin(ph)) * (running ? 0.75 : 0.5) : 0
         var legH: CGFloat = 5.2
         var bodyBob: CGFloat = walking || running ? CGFloat(abs(sin(ph))) * 0.8 : 0
-        var headDX: CGFloat = 0, headDY: CGFloat = walking ? CGFloat(sin(ph * 2)) * 0.45 : 0
+        var headDX: CGFloat = 0, headDY: CGFloat = 0
+        var osc: CGFloat = walking ? CGFloat(sin(ph * 2)) * 0.45 : 0      // fast bobbing, added after smoothing
         var tailUp: CGFloat = 0.7, wagSpeed = 7.0, wagAmp: CGFloat = 0.35
         var eyesClosed = t < blinkUntil, happyEyes = false, tongue = false
         var shiver: CGFloat = 0
@@ -399,11 +412,11 @@ final class PetChip: Chip {
 
         switch kind {
         case .feed?:
-            headDX = 3.4; headDY = -8.4 + CGFloat(sin(t * 11)) * 0.8      // head down in the bowl, chewing
+            headDX = 3.4; headDY = -8.4; osc = CGFloat(sin(t * 11)) * 0.8      // head down in the bowl, chewing
             tailUp = 0.9; wagSpeed = 12; wagAmp = 0.45
         case .pat?:
             let press = max(0, CGFloat(sin(t * 6)))
-            headDY = -1.3 * press; happyEyes = true; tongue = true
+            osc = -1.3 * press; happyEyes = true; tongue = true
             tailUp = 1.0; wagSpeed = 16; wagAmp = 0.55; bodyBob = press * 0.3
         case .play?:
             tongue = true; tailUp = 1.0; wagSpeed = 14; wagAmp = 0.5
@@ -431,6 +444,29 @@ final class PetChip: Chip {
             if pet.cpuHot && !asleep { tongue = true }                       // panting
             if pet.batteryLow && !asleep { wagSpeed = min(wagSpeed, 2); if Int(t * 2) % 5 == 0 { eyesClosed = true } }
         }
+        if asleep && !wasAsleep { yawnUntil = t + 1.8 }                       // big yawn, then lie down
+        if !asleep && wasAsleep && kind == nil { stretchUntil = t + 1.8 }    // wake-up stretch
+        wasAsleep = asleep
+        let yawning = t < yawnUntil
+        if yawning { legH = 5.2; headDY = 0.3; headDX = 0; eyesClosed = true; tongue = true; wagSpeed = 1; wagAmp = 0.1 }
+        if t < stretchUntil {                                                // play-bow stretch: chest down, tail up
+            headDX = 2.0; headDY = -3.2; tailUp = 1.2; eyesClosed = true; legH = 5.2
+        }
+
+        // ease every pose change (eat → sleep, walk → sit, side → front) instead of snapping
+        let k: CGFloat = 0.2
+        let tLeg = legH, tHX = headDX, tHY = headDY, tTail = tailUp
+        sLegH += (tLeg - sLegH) * k; sHX += (tHX - sHX) * k; sHY += (tHY - sHY) * k
+        sTail += (tTail - sTail) * k; sWagAmp += (wagAmp - sWagAmp) * k; sWagSpeed += (wagSpeed - sWagSpeed) * 0.2
+        let turnT: CGFloat = (front && !asleep && !yawning) ? 1 : 0
+        turnS += (turnT - turnS) * 0.3
+        dirS += (dir - dirS) * 0.35
+        ballA += ((kind == .play ? 1 : 0) - ballA) * 0.3
+        settling = abs(tLeg - sLegH) > 0.05 || abs(tHY - sHY) > 0.05 || abs(tHX - sHX) > 0.05 || abs(tTail - sTail) > 0.03
+            || abs(turnT - turnS) > 0.02 || abs(dir - dirS) > 0.02 || (bowlA > 0.03 && kind != .feed) || (ballA > 0.03 && kind != .play)
+        legH = sLegH; headDX = sHX; headDY = sHY + osc; tailUp = sTail; wagAmp = sWagAmp
+        if asleep && sLegH > 2.6 { eyesClosed = true }                      // eyes shut as she settles down
+
         // ears lag behind head motion (springy flop)
         let headY = headDY + bodyBob
         earLag += ((lastHeadY - headY) * 1.6 - earLag) * 0.35
@@ -440,8 +476,11 @@ final class PetChip: Chip {
         ctx.saveGState()
         let ox = (r.minX + x + shiver).rounded(.toNearestOrAwayFromZero)
         let oy = r.minY + 3 + min(jumpY, front ? 1.6 : 1.8)          // never jump out of the chip
-        ctx.translateBy(x: ox + (dir < 0 ? dogW : 0), y: oy)
-        if dir < 0 { ctx.scaleBy(x: -1, y: 1) }
+        ctx.translateBy(x: ox + dogW / 2, y: oy)
+        let flip = abs(dirS) < 0.12 ? (dirS < 0 ? -0.12 : 0.12) : dirS          // turning around squashes through the middle
+        let squeeze = max(0.12, abs(1 - 2 * turnS))                          // turning to face you does the same
+        ctx.scaleBy(x: flip * squeeze, y: 1)
+        ctx.translateBy(x: -dogW / 2, y: 0)
 
         let fur = pet.sick ? FUR_SICK : FUR
         let hi = pet.sick ? FUR_SICK.blended(withFraction: 0.2, of: .white)! : FUR_HI
@@ -531,7 +570,7 @@ final class PetChip: Chip {
             }
         }
 
-        if front && !asleep {
+        if turnS > 0.5 {
             // ---- facing you ----
             let cx: CGFloat = dogW / 2, by = 0.2 + bodyBob * 0.4
             fluff(cx, by + 6.2 + breathe * 0.4, 14.5, 9.0, fur, seed: 1)     // fluffy chest
@@ -569,7 +608,7 @@ final class PetChip: Chip {
             ctx.restoreGState()
         } else {
             // ---- side view (chibi: big head, short fluffy legs) ----
-            let bodyY = (legH < 2 ? 1.0 : 3.6) + bodyBob
+            let bodyY = 1.0 + max(0, min(1, (legH - 1.2) / 4.0)) * 2.6 + bodyBob   // sinks smoothly when lying down
             func leg(_ hipX: CGFloat, _ angle: CGFloat, _ color: NSColor, seed: Int) {
                 if legH < 2 { fluff(hipX, 1.6, 4.0, 2.6, color, seed: seed, shine: false); return }   // lying: paws
                 let fx = hipX + sin(angle) * 3.4, fy: CGFloat = 1.9
@@ -581,7 +620,7 @@ final class PetChip: Chip {
             let farC = fur.blended(withFraction: 0.28, of: .black) ?? fur
             leg(7.5, swing * 0.7, farC, seed: 11)
             leg(16.5, -swing * 0.7, farC, seed: 13)
-            let wag = CGFloat(sin(t * wagSpeed)) * wagAmp
+            let wag = CGFloat(sin(wagPhase)) * wagAmp
             let tb = NSPoint(x: 5, y: bodyY + 5.2), ang = tailUp + wag
             let tip = NSPoint(x: tb.x - 3.2 * cos(ang), y: tb.y + 3.8 * sin(ang))
             let tp = NSBezierPath(); tp.move(to: tb); tp.line(to: tip); tp.lineWidth = 2.2; tp.lineCapStyle = .round
@@ -617,8 +656,9 @@ final class PetChip: Chip {
         ctx.restoreGState()
 
         // ball, hand, particles (screen space)
-        if kind == .play {
-            NSColor(srgbRed: 0.80, green: 0.95, blue: 0.22, alpha: 1).setFill()
+        if ballA > 0.03 {
+            if kind != .play { ballY = max(2.5, ballY - 1.5) }               // drops and fades out
+            NSColor(srgbRed: 0.80, green: 0.95, blue: 0.22, alpha: min(1, ballA)).setFill()
             NSBezierPath(ovalIn: NSRect(x: r.minX + ballX, y: r.minY + ballY, width: 5, height: 5)).fill()
         }
         for p in particles {
