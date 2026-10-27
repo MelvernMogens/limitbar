@@ -10,7 +10,8 @@ struct ExtraTool {
 final class Extras {
     static let dir = NSString(string: "~/Code/local-ai").expandingTildeInPath
     // Add future tools here (tts, image gen, ...) once their on/off is wired in the extras script.
-    let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages")]
+    let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
+                 ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -47,7 +48,7 @@ final class Extras {
         if busy != nil { return "switching…" }
         let on = tools.filter { isOn($0.key) }
         if on.isEmpty { return "all off" }
-        return on.map { $0.key == "stt" ? "Whisper on" : "\($0.title) on" }.joined(separator: " · ")
+        return on.map { $0.key == "stt" ? "Whisper" : ($0.key == "tts" ? "Piper" : $0.title) }.joined(separator: " · ") + " on"
     }
 }
 
