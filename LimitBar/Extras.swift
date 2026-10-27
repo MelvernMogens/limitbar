@@ -48,7 +48,8 @@ final class Extras {
         if busy != nil { return "switching…" }
         let on = tools.filter { isOn($0.key) }
         if on.isEmpty { return "all off" }
-        return on.map { $0.key == "stt" ? "Whisper" : ($0.key == "tts" ? "Piper" : $0.title) }.joined(separator: " · ") + " on"
+        // keep this short: a wider chip overflows the Touch Bar and hides the other chips
+        return on.map { $0.key.uppercased() }.joined(separator: " · ")
     }
 }
 
