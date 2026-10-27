@@ -236,8 +236,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         // If the bar ever runs out of room macOS drops items by priority; with equal priorities it dropped
         // everything but the first chip. Usage chips stay, then Local AI / AI Tools, stats go first.
         switch key {
-        case "stats", "hermes": item.visibilityPriority = .low
-        case "local", "tools": item.visibilityPriority = .normal
+        case "hermes": item.visibilityPriority = .low
+        case "local", "tools", "stats": item.visibilityPriority = .normal
         default: item.visibilityPriority = .high
         }
         return item

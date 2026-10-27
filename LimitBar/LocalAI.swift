@@ -64,7 +64,7 @@ final class LocalAI {
                         mem = String(format: "%.1f GB", bytes / 1_073_741_824)
                     }
                 }
-                let name = model?.label ?? (id.isEmpty ? "on" : id)
+                let name = model?.short ?? (id.isEmpty ? "on" : id)  // compact name: the overview has ~700 pt
                 new = .on(model: name, mem: mem)
             } else if ps != nil || health != nil {
                 new = .partial
