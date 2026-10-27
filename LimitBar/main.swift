@@ -7,10 +7,10 @@ import UserNotifications
 //  detail   : [‹][logo plan][5h ▬▬|▬ pace][weekly ▬|▬▬ pace][extras]
 //  sessions : [‹][● working …][✓ done …][· idle …]  (swipe, tap = open in Hermes)
 
-enum Mode { case overview, detail(ProviderID), sessions, localPick }
+enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
-    static let version = "2.3"
+    static let version = "2.4"
 
     private let trayID = NSTouchBarItem.Identifier("com.melvern.limitbar.tray")
     private var touchBar: NSTouchBar?
@@ -42,6 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let localChip = LocalAIChip()
     private let localAI = LocalAI()
     private let localHeader = LocalPickHeader()
+    private let extras = Extras()
+    private let toolsChip = ToolsChip()
+    private let toolsHeader = ToolsHeader()
+    private var toolChips: [String: ToolToggleChip] = [:]
     private var modelChips: [String: LocalModelChip] = [:]
     private let sampler = StatsSampler()
     private var statsTimer: Timer?
@@ -80,10 +84,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             else if s == "off" { self.localAI.stop() }
             else { self.localChipTapped() }
         }
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.tools"), object: nil, queue: .main) { [weak self] n in
+            // object: "pick" opens the AI Tools row; "<tool key>" toggles that tool (test hook)
+            guard let self else { return }
+            let s = n.object as? String ?? "pick"
+            if s == "pick" { self.toolsChip.onTap?() } else { self.extras.toggle(s) }
+        }
         startTimers()
         refreshUsage()
         refreshSessions()
         localAI.poll()
+        extras.poll()
         NSLog("[LimitBar] launched v%@ pid %d", AppDelegate.version, ProcessInfo.processInfo.processIdentifier)
     }
 
@@ -96,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.refreshSessions()
             self?.localAI.poll()
+            self?.extras.poll()
         }
         // 1s tick only repaints (countdowns, heartbeat) — no I/O
         tickTimer?.invalidate()
@@ -177,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch mode {
         case .overview:
             tb.defaultItemIdentifiers = ProviderID.allCases.map { id("p.\($0.rawValue)") }
-                + [.fixedSpaceSmall, id("hermes"), id("local"), id("stats")]
+                + [.fixedSpaceSmall, id("local"), id("tools"), id("stats")]
         case .detail(let pid):
             let hasWeek = usages.first { $0.id == pid }?.weekly != nil
             tb.defaultItemIdentifiers = [id("back"), id("header"), id("w.session")] + (hasWeek ? [id("w.weekly")] : []) + [id("extras")]
@@ -185,6 +197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             tb.defaultItemIdentifiers = [id("back"), id("strip")]
         case .localPick:
             tb.defaultItemIdentifiers = [id("back"), id("lp.header")] + localAI.models.map { id("lm.\($0.id)") }
+        case .toolsPick:
+            tb.defaultItemIdentifiers = [id("back"), id("tools.header")] + extras.tools.map { id("tool.\($0.key)") }
         }
         updateViews()
     }
@@ -197,6 +211,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "stats": view = statsChip
         case "local": view = localChip
         case "lp.header": view = localHeader
+        case "tools": view = toolsChip
+        case "tools.header": view = toolsHeader
         case "back": view = backChip
         case "header": view = headerChip
         case "w.session": view = sessionWin
@@ -206,6 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         default:
             if key.hasPrefix("p."), let p = ProviderID(rawValue: String(key.dropFirst(2))) { view = providerChips[p] }
             else if key.hasPrefix("lm.") { view = modelChip(String(key.dropFirst(3))) }
+            else if key.hasPrefix("tool.") { view = toolChip(String(key.dropFirst(5))) }
             else { view = nil }
         }
         guard let v = view else { return nil }
@@ -230,6 +247,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
         localChip.onTap = { [weak self] in self?.localChipTapped() }
+        toolsChip.extras = extras
+        toolsChip.onTap = { [weak self] in
+            guard let self else { return }
+            self.extras.poll(); self.toolChips.removeAll(); self.mode = .toolsPick; self.rebuildBar()
+        }
+        extras.onChange = { [weak self] in
+            guard let self else { return }
+            self.toolsChip.relayout(); self.toolChips.values.forEach { $0.relayout() }
+        }
         localAI.onChange = { [weak self] s in self?.localChip.aiState = s }
         statsChip.onTap = { NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app")) }
         backChip.onTap = { [weak self] in self?.mode = .overview; self?.rebuildBar() }
@@ -262,6 +288,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             self?.rebuildBar()
         }
         modelChips[mid] = c
+        return c
+    }
+
+    private func toolChip(_ key: String) -> ToolToggleChip? {
+        if let c = toolChips[key] { return c }
+        guard let t = extras.tools.first(where: { $0.key == key }) else { return nil }
+        let c = ToolToggleChip(t, extras)
+        c.onTap = { [weak self] in self?.extras.toggle(key) }
+        toolChips[key] = c
         return c
     }
 
@@ -336,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             if case .busy = localChip.aiState { localChip.needsDisplay = true }
             providerChips.values.forEach { $0.needsDisplay = true }
         case .detail: updateViews()
-        case .sessions, .localPick: break
+        case .sessions, .localPick, .toolsPick: break
         }
         updateStatusIcon()
     }
