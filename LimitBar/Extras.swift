@@ -10,16 +10,16 @@ struct ExtraTool {
 final class Extras {
     static let dir = NSString(string: "~/Code/local-ai").expandingTildeInPath
     // Add future tools here (tts, image gen, ...) once their on/off is wired in the extras script.
-    let tools = [ExtraTool(key: "stt", title: "Whisper", detail: "Whisper · voice messages"),
-                 ExtraTool(key: "tts", title: "Piper", detail: "Piper · ID + EN auto"),
-                 ExtraTool(key: "image", title: "Image", detail: "FLUX.2 Klein"),
+    let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
+                 ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto"),
+                 ExtraTool(key: "image", title: "Image gen", detail: "FLUX.2 Klein"),
                  ExtraTool(key: "upscale", title: "Upscale", detail: "SeedVR2"),
-                 ExtraTool(key: "video", title: "Video", detail: "local video"),
-                 ExtraTool(key: "music", title: "Music", detail: "ACE-Step"),
-                 ExtraTool(key: "3d", title: "3D", detail: "Hunyuan3D"),
-                 ExtraTool(key: "bgremove", title: "Cutout", detail: "background remover"),
+                 ExtraTool(key: "video", title: "Video gen", detail: "local video"),
+                 ExtraTool(key: "music", title: "Music gen", detail: "ACE-Step"),
+                 ExtraTool(key: "3d", title: "3D gen", detail: "Hunyuan3D"),
+                 ExtraTool(key: "bgremove", title: "Remove BG", detail: "background remover"),
                  ExtraTool(key: "voiceclean", title: "Clean voice", detail: "noise removal"),
-                 ExtraTool(key: "stems", title: "Stems", detail: "vocal / music split"),
+                 ExtraTool(key: "stems", title: "Vocal split", detail: "vocal / music split"),
                  ExtraTool(key: "captions", title: "Captions", detail: "auto subtitles"),
                  ExtraTool(key: "search", title: "File search", detail: "local search")]
     private(set) var state: [String: Bool] = [:]
