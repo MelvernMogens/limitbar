@@ -246,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case .busy: break
         case .off, .partial:
             localAI.reloadModels()
+            modelChips.removeAll()  // labels/RAM may have changed in models.json
             mode = .localPick
             rebuildBar()
         }
