@@ -14,30 +14,93 @@ final class Pet {
     var fun: Double { didSet { save() } }      // 100 = very happy
     var health: Double { didSet { save() } }   // 100 = healthy
     var sick: Bool { didSet { save() } }
+    var dirt: Double { didSet { save() } }     // 0 = clean, 100 = filthy
+    var poops: Int { didSet { save() } }
+    var bond: Double { didSet { save() } }     // grows with daily care
+    var streak: Int { didSet { save() } }      // days in a row you cared for her
+    var outfit: String { didSet { save() } }   // none, bow, glasses, scarf, crown, santa
+    private var nextPoop: Date
+    private var lastCareDay: String
     private var last: Date
 
-    enum Act { case feed, play, pat, med }
-    /// short-lived reaction after you do something (an animation in the yard)
+    enum Act { case feed, play, pat, med, clean, bath, zoom, greet, celebrate, mail, dress }
+    /// short-lived reaction (an animation in the yard) + optional words in a bubble
     var reaction: (kind: Act, icon: String, until: Date)?
+    var saying: (text: String, until: Date)?
+
+    // live Mac mood (set from LimitBar's stats every 2 s; not saved)
+    var cpuHot = false, ramFull = false, batteryLow = false
 
     private init() {
         hunger = d.object(forKey: "pet.hunger") as? Double ?? 80
         fun = d.object(forKey: "pet.fun") as? Double ?? 80
         health = d.object(forKey: "pet.health") as? Double ?? 100
         sick = d.bool(forKey: "pet.sick")
+        dirt = d.object(forKey: "pet.dirt") as? Double ?? 10
+        poops = d.integer(forKey: "pet.poops")
+        bond = d.double(forKey: "pet.bond")
+        streak = d.integer(forKey: "pet.streak")
+        outfit = d.string(forKey: "pet.outfit") ?? "none"
+        nextPoop = Date(timeIntervalSince1970: d.double(forKey: "pet.nextPoop"))
+        lastCareDay = d.string(forKey: "pet.lastCareDay") ?? ""
         last = Date(timeIntervalSince1970: d.double(forKey: "pet.last"))
         if d.double(forKey: "pet.last") == 0 { last = Date() }
+        if d.double(forKey: "pet.nextPoop") == 0 { nextPoop = Date().addingTimeInterval(3 * 3600) }
         update()
     }
 
     private func save() {
         d.set(hunger, forKey: "pet.hunger"); d.set(fun, forKey: "pet.fun")
         d.set(health, forKey: "pet.health"); d.set(sick, forKey: "pet.sick")
+        d.set(dirt, forKey: "pet.dirt"); d.set(poops, forKey: "pet.poops")
+        d.set(bond, forKey: "pet.bond"); d.set(streak, forKey: "pet.streak"); d.set(outfit, forKey: "pet.outfit")
     }
 
     var asleep: Bool {
         let h = Calendar.current.component(.hour, from: Date())
         return (h >= 23 || h < 7) && reaction == nil
+    }
+
+    // MARK: bond + outfits
+    static let levelAt: [Double] = [0, 20, 50, 100, 180, 300]
+    var level: Int { (Pet.levelAt.lastIndex { bond >= $0 } ?? 0) + 1 }
+    var nextLevelProgress: Double {
+        let l = level
+        guard l < Pet.levelAt.count else { return 1 }
+        let lo = Pet.levelAt[l - 1], hi = Pet.levelAt[l]
+        return min(1, (bond - lo) / (hi - lo))
+    }
+    /// outfits unlocked by bond level (+ a Santa hat in December)
+    var unlockedOutfits: [String] {
+        var o = ["none"]
+        if level >= 2 { o.append("bow") }
+        if level >= 3 { o.append("glasses") }
+        if level >= 4 { o.append("scarf") }
+        if level >= 6 { o.append("crown") }
+        if Calendar.current.component(.month, from: Date()) == 12 { o.append("santa") }
+        return o
+    }
+    func dress() {
+        let o = unlockedOutfits
+        let i = ((o.firstIndex(of: outfit) ?? 0) + 1) % o.count
+        outfit = o[i]
+        react(.dress, outfit == "none" ? "✨" : "💅", 2.5)
+    }
+    private func cared(_ points: Double) {
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        let today = df.string(from: Date())
+        if lastCareDay != today {
+            let yesterday = df.string(from: Date().addingTimeInterval(-86400))
+            streak = lastCareDay == yesterday ? streak + 1 : 1
+            lastCareDay = today; d.set(today, forKey: "pet.lastCareDay")
+            bond += Double(min(streak, 7))                       // daily streak bonus
+        }
+        let before = level
+        bond += points
+        if level > before {
+            let new = unlockedOutfits.last ?? "none"
+            say("❤️ Lv \(level)!" + (new != "none" && new != "santa" ? " new outfit" : ""), 5)
+        }
     }
 
     /// Needs change slowly over real time (also while LimitBar was closed).
@@ -46,25 +109,37 @@ final class Pet {
         let hours = min(now.timeIntervalSince(last) / 3600, 48)   // cap: a long trip away doesn't wreck it
         last = now
         d.set(now.timeIntervalSince1970, forKey: "pet.last")
+        if let r = reaction, r.until < now { reaction = nil }
+        if let s = saying, s.until < now { saying = nil }
         guard hours > 0 else { return }
         let rate = asleep ? 0.4 : 1.0
         hunger = max(0, hunger - 6 * hours * rate)
-        fun = max(0, fun - 5 * hours * rate)
-        if hunger < 20 || fun < 15 {
-            health = max(0, health - 5 * hours)          // neglect wears it down
+        fun = max(0, fun - (5 + 2 * Double(poops) + (dirt > 70 ? 1.5 : 0)) * hours * rate)
+        dirt = min(100, dirt + 2.5 * hours)
+        if now >= nextPoop && !asleep {
+            if poops < 3 { poops += 1 }
+            nextPoop = now.addingTimeInterval(Double.random(in: 3...6) * 3600)
+            d.set(nextPoop.timeIntervalSince1970, forKey: "pet.nextPoop")
+        }
+        if hunger < 20 || fun < 15 || poops >= 3 {
+            health = max(0, health - 5 * hours)          // neglect wears her down
         } else if !sick {
             health = min(100, health + 4 * hours)
         }
         if !sick && health < 40 { sick = true }
-        if let r = reaction, r.until < now { reaction = nil }
     }
 
-    /// What it wants right now (shown in a bubble), most urgent first.
+    /// What she wants right now (shown in a bubble), most urgent first.
     var need: String? {
         if sick { return "🤒 sick…" }
         if hunger < 35 { return "🍖 hungry!" }
+        if poops > 0 { return "💩 clean pls" }
+        if dirt >= 70 { return "🛁 bath?" }
         if fun < 35 { return "🎾 play?" }
         if fun < 50 && hunger < 50 { return "😢 sad" }
+        if batteryLow { return "🔋 sleepy…" }
+        if ramFull { return "😵 so full" }
+        if cpuHot { return "🥵 hot!" }
         return nil
     }
 
@@ -72,139 +147,68 @@ final class Pet {
         if sick { return "sick" }
         if asleep { return "sleeping" }
         if hunger < 35 { return "hungry" }
+        if poops > 0 { return "needs cleaning" }
+        if dirt >= 70 { return "dirty" }
         if fun < 35 { return "bored" }
         if fun > 75 && hunger > 60 { return "happy" }
         return "ok"
     }
 
-    func feed() { hunger = min(100, hunger + 40); fun = min(100, fun + 3); react(.feed, "🍖", 4.5) }
-    func play() { fun = min(100, fun + 35); hunger = max(0, hunger - 5); react(.play, "🎾", 6) }
-    func pat() { fun = min(100, fun + 12); react(.pat, "💕", 4) }
+    func feed() {
+        hunger = min(100, hunger + 40); fun = min(100, fun + 3); cared(3)
+        nextPoop = min(nextPoop, Date().addingTimeInterval(Double.random(in: 1...2) * 3600))   // what goes in…
+        d.set(nextPoop.timeIntervalSince1970, forKey: "pet.nextPoop")
+        react(.feed, "🍖", 4.5)
+    }
+    func play() { fun = min(100, fun + 35); hunger = max(0, hunger - 5); dirt = min(100, dirt + 15); cared(3); react(.play, "🎾", 6) }
+    func pat() { fun = min(100, fun + 12); cared(1); react(.pat, "💕", 4) }
+    func clean() { poops = 0; fun = min(100, fun + 5); cared(3); react(.clean, "✨", 3) }
+    func bath() { dirt = 0; fun = min(100, fun + 4); cared(3); react(.bath, "🫧", 5) }
     func medicine() {
         health = min(100, health + 45)
         if health >= 50 { sick = false }
+        cared(2)
         react(.med, "💊", 3)
     }
-    private func react(_ k: Act, _ icon: String, _ secs: Double) { reaction = (k, icon, Date().addingTimeInterval(secs)) }
-}
+    func react(_ k: Act, _ icon: String, _ secs: Double) { reaction = (k, icon, Date().addingTimeInterval(secs)) }
+    func say(_ text: String, _ secs: Double) { saying = (text, Date().addingTimeInterval(secs)) }
 
-// MARK: - pixel art (facing right). . = empty, b = fur, d = ears/patches, w = muzzle/belly, k = eye/nose, p = tongue, z = paws
+    // MARK: reacting to the Mac
+    private var hotCount = 0, wasOnAC: Bool? = nil, awaySince: Date? = nil
+    private var limitHigh: [String: Bool] = [:], limitWasUsed: [String: Double] = [:]
+    private var workingIDs = Set<String>()
 
-private let SPR_W = 16
-private let walkA = [
-    "...........dd...",
-    "..........dbbd..",
-    "..........bbkbb.",
-    ".t........bbbwwk",
-    ".tt.......bbbww.",
-    "..tbbbbbbbbbbb..",
-    "...bbdbbbbbbbb..",
-    "...bwwwwwwwbbb..",
-    "...bb.bb..bb.bb.",
-    "...bb.bb..bb.bb.",
-    "...zz.zz..zz.zz.",
-]
-private let walkB = [
-    "...........dd...",
-    "..........dbbd..",
-    "..........bbkbb.",
-    "t.........bbbwwk",
-    ".tt.......bbbww.",
-    "..tbbbbbbbbbbb..",
-    "...bbdbbbbbbbb..",
-    "...bwwwwwwwbbb..",
-    "..bb..bb.bb..bb.",
-    "..bb..bb.bb..bb.",
-    "..zz..zz.zz..zz.",
-]
-private let sitF = [
-    "...........dd...",
-    "..........dbbd..",
-    "..........bbkbb.",
-    "..........bbbwwk",
-    "..........bbbww.",
-    "......bbbbbbbb..",
-    ".tt..bbdbbbbbb..",
-    "..t.bbbbbbwwb...",
-    "...bbbbbbbwwb...",
-    "...bbbbbbb.bb...",
-    "...zzzzz...zz...",
-]
-private let happyF = [
-    "...........dd...",
-    "..........dbbd..",
-    "..........bbkbb.",
-    "tt........bbbwwk",
-    ".tt.......bbbwp.",
-    "..tbbbbbbbbbbbp.",
-    "...bbdbbbbbbbb..",
-    "...bwwwwwwwbbb..",
-    "...bb.bb..bb.bb.",
-    "...bb.bb..bb.bb.",
-    "...zz.zz..zz.zz.",
-]
-private let eatA = [
-    "................",
-    "................",
-    "...........dd...",
-    "..........dbbd..",
-    ".t........bbkbb.",
-    ".tt.......bbbbb.",
-    "..tbbbbbbbbbbwwk",
-    "...bbdbbbbbbbww.",
-    "...bwwwwwwwbbb..",
-    "...bb.bb..bb.bb.",
-    "...zz.zz..zz.zz.",
-]
-private let eatB = [
-    "................",
-    "................",
-    "................",
-    "...........dd...",
-    "t.........dbbd..",
-    ".tt.......bbkbb.",
-    "..tbbbbbbbbbbbb.",
-    "...bbdbbbbbbbwwk",
-    "...bwwwwwwwbbww.",
-    "...bb.bb..bb.bb.",
-    "...zz.zz..zz.zz.",
-]
-private let sleepF = [
-    "................",
-    "................",
-    "................",
-    "................",
-    "................",
-    "..........dd....",
-    "...bbbbbbdbbd...",
-    ".tbbbdbbbbb-bb..",
-    "ttbbbbbbbbbbbwwk",
-    ".bwwwwwwwwwbbww.",
-    ".zz.zz....zz.zz.",
-]
-
-private func color(_ c: Character, sick: Bool) -> NSColor? {
-    let fur = sick ? NSColor(srgbRed: 0.78, green: 0.80, blue: 0.58, alpha: 1) : NSColor(srgbRed: 0.91, green: 0.72, blue: 0.48, alpha: 1)
-    switch c {
-    case "b", "t": return fur
-    case "d": return NSColor(srgbRed: 0.55, green: 0.35, blue: 0.20, alpha: 1)
-    case "w": return NSColor(srgbRed: 1.0, green: 0.95, blue: 0.86, alpha: 1)
-    case "k", "-": return NSColor(white: 0.08, alpha: 1)
-    case "p": return NSColor(srgbRed: 0.98, green: 0.45, blue: 0.55, alpha: 1)
-    case "z": return NSColor(srgbRed: 0.45, green: 0.28, blue: 0.16, alpha: 1)
-    default: return nil
-    }
-}
-
-private func drawSprite(_ rows: [String], at origin: NSPoint, px: CGFloat, flip: Bool, sick: Bool) {
-    for (ry, row) in rows.enumerated() {
-        for (rx, ch) in row.enumerated() {
-            guard let c = color(ch, sick: sick) else { continue }
-            c.setFill()
-            let x = flip ? CGFloat(SPR_W - 1 - rx) : CGFloat(rx)
-            // rows are top-down; AppKit y goes up
-            NSRect(x: origin.x + x * px, y: origin.y + CGFloat(rows.count - 1 - ry) * px, width: px, height: px).fill()
+    /// Called every 2 s with what LimitBar already knows.
+    func observe(cpu: Double, ramFrac: Double, pressure: Int, battery: Double?, charging: Bool, onAC: Bool,
+                 idleSeconds: Double, limits: [(name: String, used: Double)], tasks: [(id: String, who: String, working: Bool)]) {
+        hotCount = cpu > 0.80 ? hotCount + 1 : 0
+        cpuHot = hotCount >= 3                                     // ~6 s of heavy CPU
+        ramFull = pressure >= 4 || ramFrac > 0.93
+        batteryLow = (battery ?? 1) < 0.2 && !charging && !onAC
+        if let was = wasOnAC, !was, onAC, !asleep { react(.zoom, "⚡", 4); say("⚡ yay power!", 3) }
+        wasOnAC = onAC
+        // you went away and came back
+        if idleSeconds > 300 { if awaySince == nil { awaySince = Date() } }
+        else if awaySince != nil, idleSeconds < 5 {
+            awaySince = nil
+            if !asleep { react(.greet, "❤️", 4); say("❤️ you're back!", 4) }
         }
+        // AI usage limits: whine near the limit, celebrate the reset
+        for l in limits {
+            let high = l.used >= 0.85
+            if high, limitHigh[l.name] != true, !asleep { say("⚠️ \(l.name) \(Int(l.used * 100))%", 6) }
+            limitHigh[l.name] = high
+            if let was = limitWasUsed[l.name], was >= 0.5, l.used < 0.1, !asleep {
+                react(.celebrate, "🎉", 4); say("🎉 \(l.name) reset!", 5)
+            }
+            limitWasUsed[l.name] = l.used
+        }
+        // a Hermes task finished: she brings the mail
+        let nowWorking = Set(tasks.filter { $0.working }.map { $0.id })
+        if let done = tasks.first(where: { workingIDs.contains($0.id) && !$0.working }) {
+            react(.mail, "📬", 5); say("📬 \(done.who) done!", 6)
+        }
+        workingIDs = nowWorking
     }
 }
 
@@ -240,7 +244,8 @@ final class PetChip: Chip {
     private var blinkUntil = 0.0, nextBlink = 3.0
     private var lastAct: Pet.Act? = nil
     private var front = false
-    private var chaseV: CGFloat = 0              // turned toward you (idle moments, being petted)
+    private var chaseV: CGFloat = 0
+    private var poopXs: [CGFloat] = []      // where the poops are in the yard              // turned toward you (idle moments, being petted)
 
     override init() {
         super.init()
@@ -250,7 +255,7 @@ final class PetChip: Chip {
     required init?(coder: NSCoder) { fatalError() }
 
     private var moving: Bool {
-        pet.reaction != nil || (!(pet.asleep || pet.sick) && Date() >= pauseUntil) || !particles.isEmpty || jumpY > 0
+        pet.reaction != nil || pet.saying != nil || (!(pet.asleep || pet.sick) && Date() >= pauseUntil) || !particles.isEmpty || jumpY > 0
     }
 
     private func step() {
@@ -283,9 +288,24 @@ final class PetChip: Chip {
             if tickN % 10 == 0 { let side: CGFloat = Bool.random() ? 1 : -1; spawn(x + dogW / 2 + side * 12 - 3, 8, "♥", 7, vy: 0.32, vx: side * 0.2) }   // beside the head
         case .med?:
             if tickN % 9 == 0 { spawn(x + dogW * 0.6, 15, "+", 9, vy: 0.35) }
+        case .clean?:
+            if tickN % 4 == 0, let px = poopXs.randomElement() ?? Optional(x) { spawn(px + CGFloat.random(in: -2...4), 4, "✦", 7, vy: 0.4) }
+            if tickN % 12 == 0, !poopXs.isEmpty { poopXs.removeLast() }       // scooped one by one
+        case .bath?:
+            if tickN % 2 == 0 { spawn(x + CGFloat.random(in: -2...dogW), CGFloat.random(in: 3...16), Bool.random() ? "○" : "●", CGFloat.random(in: 5...9), vy: 0.3, vx: CGFloat.random(in: -0.25...0.25)) }
+        case .zoom?:                                                   // zoomies!
+            x += dir * 2.2; phase += 1.3
+            if x <= 4 || x >= yard - dogW - 4 { dir = -dir }
+            if jumpY == 0 && Int.random(in: 0..<25) == 0 { jumpV = 2.0 }
+        case .greet?, .celebrate?:
+            if jumpY == 0 && tickN % 9 == 0 { jumpV = 1.7 }
+            if act == .celebrate, tickN % 2 == 0 { spawn(CGFloat.random(in: 0...yard), CGFloat.random(in: 18...24), "✦", 6, vy: -0.4, vx: CGFloat.random(in: -0.3...0.3)) }
+            if act == .greet, tickN % 10 == 0 { spawn(x + dogW / 2 + CGFloat.random(in: -12...10), 10, "♥", 7, vy: 0.3) }
+        case .mail?, .dress?:
+            if act == .dress, tickN % 5 == 0 { spawn(x + CGFloat.random(in: 0...dogW), CGFloat.random(in: 8...20), "✦", 6, vy: 0.2) }
         case nil:
             if !(pet.asleep || pet.sick) && Date() >= pauseUntil {
-                let speed: CGFloat = pet.fun < 35 ? 0.37 : 0.75        // points per frame (12 fps)
+                let speed: CGFloat = (pet.fun < 35 || pet.batteryLow) ? 0.37 : 0.75   // points per frame (12 fps)
                 x += dir * speed
                 phase += Double(speed) * 0.62
                 if x <= 3 || x >= yard - dogW - 3 { dir = -dir }
@@ -301,19 +321,23 @@ final class PetChip: Chip {
             if pet.asleep && tickN % 40 == 0 { spawn(x + dogW - 2, 13, "z", 8, vy: 0.14, vx: 0.12) }
         }
         x = min(max(x, 3), yard - dogW - 3)
+        if pet.reaction?.kind != .clean {
+            if poopXs.count > pet.poops { poopXs.removeAll() }
+            while poopXs.count < pet.poops { poopXs.append(CGFloat.random(in: 6...(yard - 12))) }
+        }
         if jumpV != 0 || jumpY > 0 { jumpY += jumpV; jumpV -= 0.8; if jumpY <= 0 { jumpY = 0; jumpV = 0 } }
         for k in particles.indices {
             if particles[k].text == "•" { particles[k].vy -= 0.2; if particles[k].y < 3 { particles[k].life = 0 } }
             particles[k].x += particles[k].vx; particles[k].y += particles[k].vy; particles[k].life -= 1
         }
-        particles.removeAll { $0.life <= 0 }
+        particles.removeAll { $0.life <= 0 || $0.x < -10 || $0.x > yard + 10 }
         // battery saver: full 24 fps only while something moves; ~8 fps when resting (breathing + tail)
         if moving || tickN % 3 == 0 { needsDisplay = true }   // 12 fps moving, 4 fps resting
     }
 
     private func startAct(_ a: Pet.Act?) {
         particles.removeAll()
-        front = (a == .pat || a == .med)
+        front = (a == .pat || a == .med || a == .greet || a == .mail || a == .dress)
         if a == .play {
             ballX = min(max(x + (dir > 0 ? dogW + 16 : -16), 8), yard - 12)
             ballY = 12; ballVY = 2; ballVX = dir > 0 ? 1.3 : -1.3
@@ -331,7 +355,7 @@ final class PetChip: Chip {
         let asleep = pet.asleep && kind == nil
         let sick = pet.sick && kind == nil
         let walking = kind == nil && !asleep && !sick && Date() >= pauseUntil
-        let running = kind == .play
+        let running = kind == .play || kind == .zoom
 
         // props behind the dog
         if kind == .feed {
@@ -344,6 +368,22 @@ final class PetChip: Chip {
             for (dx, dy) in [(2.5, 5.6), (4.6, 6.3), (6.8, 6.0), (8.6, 5.5), (5.6, 7.2)] as [(CGFloat, CGFloat)] {
                 NSBezierPath(ovalIn: NSRect(x: bx + dx, y: r.minY + dy, width: 2.0, height: 1.7)).fill()
             }
+        }
+
+        for (i, px) in poopXs.enumerated() {
+            let bx = r.minX + px
+            let brown = NSColor(srgbRed: 0.40, green: 0.24, blue: 0.10, alpha: 1)
+            brown.setFill()
+            NSBezierPath(ovalIn: NSRect(x: bx, y: r.minY + 2.5, width: 7, height: 3)).fill()
+            NSBezierPath(ovalIn: NSRect(x: bx + 1.2, y: r.minY + 4.6, width: 4.6, height: 2.6)).fill()
+            NSBezierPath(ovalIn: NSRect(x: bx + 2.4, y: r.minY + 6.4, width: 2.4, height: 2.0)).fill()
+            let stink = NSBezierPath()                                    // wavy stink lines
+            for k in 0..<2 {
+                let sx = bx + 2 + CGFloat(k) * 3, w = CGFloat(sin(t * 3 + Double(i + k)))
+                stink.move(to: NSPoint(x: sx, y: r.minY + 9)); stink.curve(to: NSPoint(x: sx + w, y: r.minY + 14),
+                    controlPoint1: NSPoint(x: sx + 1.5, y: r.minY + 10.5), controlPoint2: NSPoint(x: sx - 1.5, y: r.minY + 12.5))
+            }
+            stink.lineWidth = 0.6; NSColor(srgbRed: 0.6, green: 0.75, blue: 0.4, alpha: 0.8).setStroke(); stink.stroke()
         }
 
         // pose parameters (dog local space: facing right, origin at its left foot line)
@@ -369,6 +409,14 @@ final class PetChip: Chip {
             tongue = true; tailUp = 1.0; wagSpeed = 14; wagAmp = 0.5
         case .med?:
             tailUp = 0.3; wagSpeed = 3; headDY = -1
+        case .bath?:
+            shiver = (tickN % 2 == 0) ? 0.7 : -0.7; eyesClosed = true; tailUp = 0.2   // shake shake
+        case .clean?, .dress?:
+            happyEyes = pet.reaction?.kind == .dress; tailUp = 1.0; wagSpeed = 12; wagAmp = 0.5
+        case .zoom?, .greet?, .celebrate?:
+            tongue = true; happyEyes = kind != .zoom; tailUp = 1.1; wagSpeed = 18; wagAmp = 0.6
+        case .mail?:
+            tailUp = 1.0; wagSpeed = 14; wagAmp = 0.5
         case nil:
             if asleep {
                 legH = 1.2; headDX = 1.0; headDY = -4.2 + breathe * 0.6; eyesClosed = true
@@ -380,6 +428,8 @@ final class PetChip: Chip {
                 tailUp = pet.fun < 35 ? -0.2 : 0.7; wagSpeed = pet.fun < 35 ? 2 : 6
                 headDY = CGFloat(sin(t * 0.9)) * 0.4 + breathe * 0.4   // looking around, breathing
             } else if pet.fun < 35 { tailUp = -0.1; wagSpeed = 2.5 }
+            if pet.cpuHot && !asleep { tongue = true }                       // panting
+            if pet.batteryLow && !asleep { wagSpeed = min(wagSpeed, 2); if Int(t * 2) % 5 == 0 { eyesClosed = true } }
         }
         // ears lag behind head motion (springy flop)
         let headY = headDY + bodyBob
@@ -389,7 +439,7 @@ final class PetChip: Chip {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.saveGState()
         let ox = (r.minX + x + shiver).rounded(.toNearestOrAwayFromZero)
-        let oy = r.minY + 3 + jumpY
+        let oy = r.minY + 3 + min(jumpY, front ? 1.6 : 1.8)          // never jump out of the chip
         ctx.translateBy(x: ox + (dir < 0 ? dogW : 0), y: oy)
         if dir < 0 { ctx.scaleBy(x: -1, y: 1) }
 
@@ -440,11 +490,57 @@ final class PetChip: Chip {
             ctx.restoreGState()
         }
         let tilt = CGFloat(sin(t * 0.7)) * 0.12            // gentle curious head tilt
+        let outfit = pet.outfit
+        /// accessories, drawn in head space; `topY` = topknot centre, `eye` = eye position(s)
+        func headwear(topX: CGFloat, topY: CGFloat, eyes: [NSPoint]) {
+            switch outfit {
+            case "bow":
+                NSColor(srgbRed: 1.0, green: 0.42, blue: 0.62, alpha: 1).setFill()
+                let bx = topX + 3.2, by = topY + 1.2
+                let l = NSBezierPath(); l.move(to: NSPoint(x: bx, y: by)); l.line(to: NSPoint(x: bx - 3, y: by + 1.8)); l.line(to: NSPoint(x: bx - 3, y: by - 1.8)); l.close(); l.fill()
+                let rr = NSBezierPath(); rr.move(to: NSPoint(x: bx, y: by)); rr.line(to: NSPoint(x: bx + 3, y: by + 1.8)); rr.line(to: NSPoint(x: bx + 3, y: by - 1.8)); rr.close(); rr.fill()
+                NSColor(srgbRed: 0.85, green: 0.25, blue: 0.45, alpha: 1).setFill()
+                NSBezierPath(ovalIn: NSRect(x: bx - 1, y: by - 1, width: 2, height: 2)).fill()
+            case "crown":
+                NSColor(srgbRed: 1.0, green: 0.80, blue: 0.20, alpha: 1).setFill()
+                let c = NSBezierPath(); let cx = topX, cy = topY + 1.8
+                c.move(to: NSPoint(x: cx - 3.6, y: cy)); c.line(to: NSPoint(x: cx - 3.6, y: cy + 3)); c.line(to: NSPoint(x: cx - 1.8, y: cy + 1.4))
+                c.line(to: NSPoint(x: cx, y: cy + 3.6)); c.line(to: NSPoint(x: cx + 1.8, y: cy + 1.4)); c.line(to: NSPoint(x: cx + 3.6, y: cy + 3))
+                c.line(to: NSPoint(x: cx + 3.6, y: cy)); c.close(); c.fill()
+            case "santa":
+                NSColor(srgbRed: 0.88, green: 0.15, blue: 0.18, alpha: 1).setFill()
+                let h = NSBezierPath(); h.move(to: NSPoint(x: topX - 4, y: topY)); h.line(to: NSPoint(x: topX + 4, y: topY))
+                h.line(to: NSPoint(x: topX + 5.5, y: topY + 5.5)); h.close(); h.fill()
+                NSColor.white.setFill()
+                NSBezierPath(roundedRect: NSRect(x: topX - 4.6, y: topY - 1, width: 9.2, height: 2), xRadius: 1, yRadius: 1).fill()
+                NSBezierPath(ovalIn: NSRect(x: topX + 4.6, y: topY + 4.6, width: 2.2, height: 2.2)).fill()
+            case "glasses":
+                for e in eyes {
+                    INK.setFill(); NSBezierPath(roundedRect: NSRect(x: e.x - 2.0, y: e.y - 1.4, width: 4.0, height: 2.8), xRadius: 1, yRadius: 1).fill()
+                    NSColor(white: 1, alpha: 0.5).setFill(); NSRect(x: e.x - 1.3, y: e.y + 0.3, width: 1.2, height: 0.6).fill()
+                }
+                if eyes.count == 2 { INK.setStroke(); let b = NSBezierPath(); b.move(to: NSPoint(x: eyes[0].x + 2, y: eyes[0].y + 0.4)); b.line(to: NSPoint(x: eyes[1].x - 2, y: eyes[1].y + 0.4)); b.lineWidth = 0.7; b.stroke() }
+            default: break
+            }
+        }
+        func dirtSpots(_ cx: CGFloat, _ cy: CGFloat, _ w: CGFloat, _ h: CGFloat) {
+            guard pet.dirt >= 50 else { return }
+            NSColor(srgbRed: 0.30, green: 0.22, blue: 0.16, alpha: 0.75).setFill()
+            for (dx, dy) in [(-0.3, 0.1), (0.15, -0.2), (0.3, 0.2), (-0.1, -0.25)] as [(CGFloat, CGFloat)] {
+                NSBezierPath(ovalIn: NSRect(x: cx + dx * w - 0.9, y: cy + dy * h - 0.6, width: 1.8, height: 1.2)).fill()
+            }
+        }
 
         if front && !asleep {
             // ---- facing you ----
             let cx: CGFloat = dogW / 2, by = 0.2 + bodyBob * 0.4
             fluff(cx, by + 6.2 + breathe * 0.4, 14.5, 9.0, fur, seed: 1)     // fluffy chest
+            dirtSpots(cx, by + 6, 14, 8)
+            if outfit == "scarf" {
+                NSColor(srgbRed: 0.85, green: 0.22, blue: 0.25, alpha: 1).setFill()
+                NSBezierPath(roundedRect: NSRect(x: cx - 6, y: by + 9.2, width: 12, height: 2.6), xRadius: 1.3, yRadius: 1.3).fill()
+                NSBezierPath(roundedRect: NSRect(x: cx + 2.2, y: by + 5.4, width: 2.4, height: 4.4), xRadius: 1, yRadius: 1).fill()
+            }
             fluff(cx - 3.9, by + 1.9, 4.8, 3.6, hi, seed: 2)                 // front paws (lighter, so they read)
             fluff(cx + 3.9, by + 1.9, 4.8, 3.6, hi, seed: 4)
             ctx.saveGState()
@@ -458,11 +554,17 @@ final class PetChip: Chip {
             NSBezierPath(ovalIn: NSRect(x: -5.6, y: -2.6, width: 2.6, height: 1.5)).fill()
             NSBezierPath(ovalIn: NSRect(x: 3.0, y: -2.6, width: 2.6, height: 1.5)).fill()
             eye(-2.6, 1.0); eye(2.6, 1.0)
+            headwear(topX: 0, topY: 6.4, eyes: [NSPoint(x: -2.6, y: 1.0), NSPoint(x: 2.6, y: 1.0)])
             CREAM.setFill(); NSBezierPath(roundedRect: NSRect(x: -2.6, y: -3.9, width: 5.2, height: 3.6), xRadius: 1.8, yRadius: 1.8).fill()
             INK.setFill(); NSBezierPath(ovalIn: NSRect(x: -1.0, y: -1.5, width: 2.0, height: 1.5)).fill()
             if tongue {
                 NSColor(srgbRed: 0.98, green: 0.47, blue: 0.56, alpha: 1).setFill()
                 NSBezierPath(ovalIn: NSRect(x: -0.9, y: -5.4 + CGFloat(sin(t * 9)) * 0.3, width: 1.9, height: 2.3)).fill()
+            }
+            if kind == .mail {                                             // letter in her mouth
+                NSColor.white.setFill(); NSBezierPath(rect: NSRect(x: -3.2, y: -7.2, width: 6.4, height: 4.2)).fill()
+                let v = NSBezierPath(); v.move(to: NSPoint(x: -3.2, y: -3.0)); v.line(to: NSPoint(x: 0, y: -5.3)); v.line(to: NSPoint(x: 3.2, y: -3.0))
+                v.lineWidth = 0.6; NSColor(white: 0.5, alpha: 1).setStroke(); v.stroke()
             }
             ctx.restoreGState()
         } else {
@@ -486,6 +588,11 @@ final class PetChip: Chip {
             fur.setStroke(); tp.stroke()
             fluff(tip.x, tip.y, 4.6, 4.6, fur, seed: 3)                                      // pom-pom tail
             fluff(11.5, bodyY + 4.2 + (legH < 2 ? breathe * 0.5 : 0), 15.5, 8.6, fur, seed: 1) // round fluffy body
+            dirtSpots(11.5, bodyY + 4.2, 15, 8)
+            if outfit == "scarf" {
+                NSColor(srgbRed: 0.85, green: 0.22, blue: 0.25, alpha: 1).setFill()
+                NSBezierPath(roundedRect: NSRect(x: 15.6, y: bodyY + 5.0, width: 3.2, height: 6.2), xRadius: 1.4, yRadius: 1.4).fill()
+            }
             let nearC = fur.blended(withFraction: 0.12, of: .white) ?? fur
             leg(6.5, -swing * 0.7, nearC, seed: 17)
             leg(15.5, swing * 0.7, nearC, seed: 19)
@@ -503,6 +610,7 @@ final class PetChip: Chip {
                 NSBezierPath(ovalIn: NSRect(x: 3.9, y: -4.9 + CGFloat(sin(t * 9)) * 0.3, width: 2.1, height: 2.5)).fill()
             }
             eye(2.2, 1.2)
+            headwear(topX: -0.8, topY: 5.4, eyes: [NSPoint(x: 2.2, y: 1.2)])
             curlyEar(NSPoint(x: -2.4, y: 2.6), -0.22 + earLag * 0.3 + (asleep ? 0.35 : 0), false)
             ctx.restoreGState()
         }
@@ -516,13 +624,30 @@ final class PetChip: Chip {
         for p in particles {
             if p.life < 5 { continue }                                   // vanish cleanly (no dark smudge)
             let alpha: CGFloat = 1
-            let c: NSColor = p.text == "♥" ? .systemPink : (p.text == "+" ? workingGreen : (p.text == "z" ? NSColor(srgbRed: 0.75, green: 0.85, blue: 1, alpha: 1) : NSColor(srgbRed: 0.65, green: 0.45, blue: 0.25, alpha: 1)))
+            let c: NSColor
+            switch p.text {
+            case "♥": c = .systemPink
+            case "+": c = workingGreen
+            case "z": c = NSColor(srgbRed: 0.75, green: 0.85, blue: 1, alpha: 1)
+            case "○", "●": c = NSColor(srgbRed: 0.70, green: 0.88, blue: 1, alpha: 1)
+            case "✦": c = [NSColor.systemYellow, .systemPink, toolTeal, .systemOrange][((Int(p.y * 7) % 4) + 4) % 4]
+            default: c = NSColor(srgbRed: 0.65, green: 0.45, blue: 0.25, alpha: 1)
+            }
             let a = NSAttributedString(string: p.text, attributes: [.font: NSFont.systemFont(ofSize: p.size, weight: .bold),
                                                                     .foregroundColor: c.withAlphaComponent(alpha)])
             a.draw(at: NSPoint(x: r.minX + p.x, y: r.minY + p.y))
         }
-        // need bubble when idle
-        if kind == nil, !pet.asleep, let n = pet.need, Int(t / 1.2) % 3 != 0 {
+        if pet.cpuHot && !pet.asleep {                                   // sweating
+            let sx = r.minX + x + (front ? dogW / 2 + 6 : (dir > 0 ? dogW - 8 : 8)), sy = r.minY + 19 - CGFloat((tickN / 2) % 6)
+            NSColor(srgbRed: 0.45, green: 0.75, blue: 1.0, alpha: 0.9).setFill()
+            let d = NSBezierPath(); d.move(to: NSPoint(x: sx, y: sy + 2.6))
+            d.curve(to: NSPoint(x: sx, y: sy), controlPoint1: NSPoint(x: sx - 1.6, y: sy + 0.6), controlPoint2: NSPoint(x: sx - 1.2, y: sy))
+            d.curve(to: NSPoint(x: sx, y: sy + 2.6), controlPoint1: NSPoint(x: sx + 1.2, y: sy), controlPoint2: NSPoint(x: sx + 1.6, y: sy + 0.6))
+            d.fill()
+        }
+        // words: what she's saying (events) beats what she needs
+        let words: String? = pet.saying?.text ?? ((kind == nil && !pet.asleep && Int(t / 1.2) % 3 != 0) ? pet.need : nil)
+        if let n = words {
             let a = NSAttributedString(string: n, attributes: [.font: NSFont.systemFont(ofSize: 8.5, weight: .semibold),
                                                                .foregroundColor: NSColor(white: 0.92, alpha: 1)])
             let bx = dir > 0 ? r.minX + x + dogW - 2 : r.minX + x - a.size().width + 2
@@ -535,21 +660,29 @@ final class PetChip: Chip {
 
 final class PetStatusChip: Chip {
     private let pet = Pet.shared
-    override init() { super.init(); setWidth(150) }
+    override init() { super.init(); setWidth(190) }
     required init?(coder: NSCoder) { fatalError() }
 
     override func drawContent(_ r: NSRect) {
         pet.update()
         let top = attr("\(pet.name) · \(pet.moodWord)", 11, .semibold, pet.sick ? .systemOrange : .white)
         top.draw(at: NSPoint(x: r.minX + 8, y: r.maxY - top.size().height - 1))
-        // three mini bars: food, fun, health
+        // bond level + streak, right side of the top line
+        let lv = attr("Lv\(pet.level)" + (pet.streak > 1 ? " 🔥\(pet.streak)" : ""), 9, .bold, .systemPink)
+        lv.draw(at: NSPoint(x: r.maxX - lv.size().width - 8, y: r.maxY - lv.size().height - 1.5))
+        let lt = NSRect(x: r.maxX - lv.size().width - 8, y: r.maxY - 14.5, width: lv.size().width, height: 1.6)
+        trackColor.setFill(); NSBezierPath(roundedRect: lt, xRadius: 0.8, yRadius: 0.8).fill()
+        NSColor.systemPink.setFill()
+        NSBezierPath(roundedRect: NSRect(x: lt.minX, y: lt.minY, width: max(1.6, lt.width * CGFloat(pet.nextLevelProgress)), height: 1.6), xRadius: 0.8, yRadius: 0.8).fill()
+        // four mini bars: food, fun, health, clean
         let bars: [(String, Double, NSColor)] = [("🍖", pet.hunger, .systemOrange), ("🎾", pet.fun, toolTeal),
-                                                  ("❤️", pet.health, pet.sick ? .systemRed : workingGreen)]
+                                                  ("❤️", pet.health, pet.sick ? .systemRed : workingGreen),
+                                                  ("🫧", 100 - pet.dirt, NSColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 1))]
         var bx = r.minX + 8
         for (icon, v, c) in bars {
             let ia = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 7)])
             ia.draw(at: NSPoint(x: bx, y: r.minY + 2))
-            let track = NSRect(x: bx + 10, y: r.minY + 4.5, width: 30, height: 4)
+            let track = NSRect(x: bx + 10, y: r.minY + 4.5, width: 32, height: 4)
             trackColor.setFill(); NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2).fill()
             c.setFill(); NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY, width: max(2, track.width * CGFloat(v / 100)), height: 4), xRadius: 2, yRadius: 2).fill()
             bx += 45
@@ -562,13 +695,13 @@ final class PetActionChip: Chip {
     init(_ icon: String, _ label: String) {
         self.icon = icon; self.label = label
         super.init()
-        setWidth(attr(label, 11, .semibold).size().width + 34)
+        setWidth(attr(label, 11, .semibold).size().width + 38)
     }
     required init?(coder: NSCoder) { fatalError() }
     override func drawContent(_ r: NSRect) {
         let i = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 14)])
         i.draw(at: NSPoint(x: r.minX + 7, y: r.midY - i.size().height / 2))
         let t = attr(label, 11, .semibold)
-        t.draw(at: NSPoint(x: r.minX + 26, y: r.midY - t.size().height / 2))
+        t.draw(at: NSPoint(x: r.minX + 29, y: r.midY - t.size().height / 2))
     }
 }
