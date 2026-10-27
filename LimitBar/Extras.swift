@@ -11,7 +11,8 @@ final class Extras {
     static let dir = NSString(string: "~/Code/local-ai").expandingTildeInPath
     // Add future tools here (tts, image gen, ...) once their on/off is wired in the extras script.
     let tools = [ExtraTool(key: "stt", title: "Speech to text", detail: "Whisper · voice messages"),
-                 ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto")]
+                 ExtraTool(key: "tts", title: "Text to speech", detail: "Piper · ID + EN auto"),
+                 ExtraTool(key: "image", title: "Image gen", detail: "FLUX.2 Klein")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -49,7 +50,7 @@ final class Extras {
         let on = tools.filter { isOn($0.key) }
         if on.isEmpty { return "all off" }
         // keep this short: a wider chip overflows the Touch Bar and hides the other chips
-        return on.map { $0.key.uppercased() }.joined(separator: " · ")
+        return on.map { $0.key == "image" ? "IMG" : $0.key.uppercased() }.joined(separator: " · ")
     }
 }
 
