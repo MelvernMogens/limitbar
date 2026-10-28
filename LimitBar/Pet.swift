@@ -397,6 +397,7 @@ final class PetChip: Chip {
     private var lastBark = 0.0, barker = 0
     private var raining = false, lastWeather = -9999.0, forceRain: Bool? = nil
     private var drops: [CGPoint] = []
+    static let weatherOn = false                 // rain + sky were removed at the user's request
     private var daytime: Bool { let h = Calendar.current.component(.hour, from: Date()); return (h >= 7 && h < 21) || Pet.forceAwake }
 
     override init() {
@@ -517,7 +518,7 @@ final class PetChip: Chip {
     private func stepWorld() {
         let anyAwake = dogs.contains { !$0.pet.asleep && !$0.pet.sick }
         // weather: ask wttr.in every 30 min (offline → no rain)
-        if forceRain == nil, t - lastWeather > 1800 {
+        if PetChip.weatherOn, forceRain == nil, t - lastWeather > 1800 {
             lastWeather = t
             if let url = URL(string: "https://wttr.in/?format=%C") {
                 var rq = URLRequest(url: url); rq.timeoutInterval = 10
@@ -1039,7 +1040,7 @@ final class PetChip: Chip {
 
     override func drawContent(_ r: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        drawSky(r, ctx)
+        // (no sky backdrop: the user prefers the plain dark chip)
         drawCat(r, ctx)
         drawCake(r)
         for d in dogs { drawProps(d, r, ctx) }
@@ -1062,7 +1063,6 @@ final class PetChip: Chip {
         }
 
         drawButterfly(r)
-        drawRain(r)
         if ballA > 0.03 {
             if !ballOn { ballY = max(2.5, ballY - 1.5) }
             NSColor(srgbRed: 0.80, green: 0.95, blue: 0.22, alpha: min(1, ballA)).setFill()
