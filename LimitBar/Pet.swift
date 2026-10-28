@@ -108,7 +108,7 @@ final class Pet {
     func trick() {
         let ts = unlockedTricks
         currentTrick = ts[trickIndex % ts.count]; trickIndex += 1
-        fun = min(100, fun + 5); cared(2)
+        fun = min(100, fun + 3)   // just for fun: tricks give no EXP (spammable)
         react(.trick, "🐾", currentTrick == "roll" ? 2.6 : 3)
     }
     /// copy a trick her sister just did (no stats, just for fun)
@@ -214,20 +214,41 @@ final class Pet {
         return "ok"
     }
 
+    // EXP only comes from care she actually NEEDS: feed/play fill a limited bar (EXP scales with how much
+    // was filled), clean/bath/medicine only count when there's something to fix. Pat + tricks: no EXP.
     func feed() {
-        hunger = min(100, hunger + 40); fun = min(100, fun + 3); cared(3)
+        if hunger >= 90 { say("😋 I'm full!", 2.5); return }
+        let gain = min(40, 100 - hunger)
+        hunger += gain; fun = min(100, fun + 3); cared(3 * gain / 40)
         nextPoop = min(nextPoop, Date().addingTimeInterval(Double.random(in: 1...2) * 3600))   // what goes in…
         d.set(nextPoop.timeIntervalSince1970, forKey: key("nextPoop"))
         react(.feed, "🍖", 4.5)
     }
-    func play() { fun = min(100, fun + 35); hunger = max(0, hunger - 5); dirt = min(100, dirt + 15); cared(3); react(.play, "🎾", 6) }
-    func pat() { fun = min(100, fun + 12); cared(1); react(.pat, "💕", 4) }
-    func clean() { poops = 0; fun = min(100, fun + 5); cared(3); react(.clean, "✨", 3) }
-    func bath() { dirt = 0; fun = min(100, fun + 4); cared(3); react(.bath, "🫧", 5) }
+    func play() {
+        if fun >= 90 { say("😴 don't wanna play", 2.5); return }
+        if hunger < 15 { say("🍖 too hungry to play", 2.5); return }
+        let gain = min(35, 100 - fun)
+        fun += gain; hunger = max(0, hunger - 5); dirt = min(100, dirt + 15); cared(3 * gain / 35)
+        react(.play, "🎾", 6)
+    }
+    func pat() { fun = min(100, fun + 8); react(.pat, "💕", 4) }   // no EXP (spammable)
+    func clean() {
+        let had = poops
+        poops = 0; fun = min(100, fun + 5)
+        if had > 0 { cared(Double(min(had, 3))) }
+        react(.clean, "✨", 3)
+    }
+    func bath() {
+        let was = dirt
+        dirt = 0; fun = min(100, fun + 4)
+        if was >= 30 { cared(3 * was / 100) }
+        react(.bath, "🫧", 5)
+    }
     func medicine() {
+        let wasSick = sick
         health = min(100, health + 45)
         if health >= 50 { sick = false }
-        cared(2)
+        if wasSick { cared(2) }
         react(.med, "💊", 3)
     }
     func react(_ k: Act, _ icon: String, _ secs: Double) { reaction = (k, icon, Date().addingTimeInterval(secs)) }
