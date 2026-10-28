@@ -257,7 +257,7 @@ final class Pet {
         // AI usage limits: whine near the limit, celebrate the reset
         for l in limits {
             let high = l.used >= 0.85
-            if high, limitHigh[l.name] != true, !asleep { say("⚠️ \(l.name) \(Int(l.used * 100))%", 6) }
+            if high, limitHigh[l.name] != true, !asleep { say("⚠️ \(l.name) \(Int(min(999, max(0, l.used.isFinite ? l.used * 100 : 0))))%", 6) }
             limitHigh[l.name] = high
             if let was = limitWasUsed[l.name], was >= 0.5, l.used < 0.1, !asleep {
                 react(.celebrate, "🎉", 4); say("🎉 \(l.name) reset!", 5)
@@ -679,8 +679,11 @@ final class PetChip: Chip {
                 if t >= d.committedUntil, !passing(d), abs(gapO) < 44, gapO * d.dir > 0, !inDuo(o) {
                     // decide ONCE what to do about her sister, then commit for a few seconds
                     let roomBeyond = d.dir > 0 ? (yard - dogW - 3) - o.x > 30 : o.x - 3 > 30
-                    if abs(gapO) < 30 || (roomBeyond && Bool.random()) {
+                    let roomBehind = d.dir > 0 ? d.x - 3 > 20 : (yard - dogW - 3) - d.x > 20
+                    if abs(gapO) < 30 || (roomBeyond && (Bool.random() || !roomBehind)) {
                         startPass(d)                                              // keep walking, past her (behind)
+                    } else if !roomBehind {
+                        d.pauseUntil = t + Double.random(in: 1.5...3); d.front = true   // cornered: sit and look at you
                     } else {
                         face(d, -d.dir, "avoid")                                  // or turn around
                         if Bool.random() { d.pauseUntil = t + Double.random(in: 1...2.5); d.front = Bool.random() }
@@ -728,8 +731,8 @@ final class PetChip: Chip {
         guard abs(gap) < minGap, !(a.goal != nil && b.goal != nil), !passing(a), !passing(b) else { return }
         let push = min(1.4, (minGap - abs(gap)) * 0.25) * s
         // the one that's busy (being fed / petted / played with by you) stays put; the other makes room
-        let aFixed = (a.pet.reaction != nil && a.pet.reaction?.kind != .play) || a.goal != nil || inDuo(a)
-        let bFixed = (b.pet.reaction != nil && b.pet.reaction?.kind != .play) || b.goal != nil || inDuo(b)
+        let aFixed = (a.pet.reaction != nil && a.pet.reaction?.kind != .play) || a.goal != nil || inDuo(a) || (a.pet.sick && !b.pet.sick)
+        let bFixed = (b.pet.reaction != nil && b.pet.reaction?.kind != .play) || b.goal != nil || inDuo(b) || (b.pet.sick && !a.pet.sick)
         let sign: CGFloat = gap >= 0 ? 1 : -1
         var ma: CGFloat = aFixed ? 0 : (bFixed ? 1 : 0.5), mb: CGFloat = bFixed ? 0 : (aFixed ? 1 : 0.5)
         if aFixed && bFixed { ma = 0.5; mb = 0.5 }
@@ -737,7 +740,7 @@ final class PetChip: Chip {
         if (sign > 0 && a.x <= 4) || (sign < 0 && a.x >= yard - dogW - 4) { mb += ma; ma = 0 }
         if (sign > 0 && b.x >= yard - dogW - 4) || (sign < 0 && b.x <= 4) { ma += mb; mb = 0 }
         // whoever makes room faces the way she's going (decided once, then committed) — no moonwalking, no flip-flopping
-        for (d, m, way) in [(a, ma, -sign), (b, mb, sign)] where m > 0 && d.pet.reaction == nil && !d.pet.asleep {
+        for (d, m, way) in [(a, ma, -sign), (b, mb, sign)] where m > 0 && d.pet.reaction == nil && !d.pet.asleep && !d.fxSad {
             if t >= d.committedUntil, face(d, way, "makeroom") { d.committedUntil = t + 2.5; d.front = false }
         }
         a.x = clampX(a.x - sign * push * ma)
@@ -760,9 +763,9 @@ final class PetChip: Chip {
             d.pauseUntil = t + Double.random(in: 4...7)
             return true
         }
-        if abs(dx) > 3 { face(d, dx > 0 ? 1 : -1, "goal") }
+        if abs(dx) > 6 { face(d, dx > 0 ? 1 : -1, "goal") }
         let sp: CGFloat = (d.goalRun ? 1.5 : (d.pet.asleep ? 0.4 : 0.75)) * s
-        if (dx > 0 ? 1 : -1) == d.dir || abs(dx) <= 3 {                        // only walk forward (no moonwalking)
+        if (dx > 0 ? 1 : -1) == d.dir || abs(dx) <= 6 {                        // walk forward; tiny adjustments may step back
             d.x += (dx > 0 ? 1 : -1) * min(sp, abs(dx)); d.phase += Double(min(sp, abs(dx))) * 0.62
         }
         d.front = false
@@ -804,10 +807,10 @@ final class PetChip: Chip {
         let sis = other(d)
         if a == .trick, sis.free, !inDuo(sis), sis.pet.reaction == nil, Int.random(in: 0..<10) < 7 {   // sister copies the trick
             let name = d.pet.currentTrick
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { if sis.pet.reaction == nil && !sis.pet.asleep { sis.pet.copyTrick(name) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { if sis.pet.reaction == nil && !sis.pet.asleep && !sis.pet.sick { sis.pet.copyTrick(name) } }
         }
         if a == .birthday, sis.pet.reaction == nil, !sis.pet.asleep { sis.pet.react(.celebrate, "🎉", 6.5) }
-        if a != nil { d.goal = nil; if inDuo(d) { endDuo(reward: false) } }
+        if a != nil { d.goal = nil; d.pendingFace = nil; if inDuo(d) { endDuo(reward: false) } }
         if a == .play && !ballOn {
             ballX = min(max(d.x + (d.dir > 0 ? dogW + 16 : -16), 8), yard - 12)
             ballY = 12; ballVY = 2; ballVX = d.dir > 0 ? 1.3 : -1.3
@@ -817,7 +820,7 @@ final class PetChip: Chip {
         if (a == .pat || a == .feed), o.free, !inDuo(o) {
             var gx = d.mid + (o.mid < d.mid ? -32 : 32) - 14
             if clampX(gx) != gx { gx = d.mid + (o.mid < d.mid ? 32 : -32) - 14 }
-            o.goal = clampX(gx); o.goalRun = false
+            o.goal = clampX(gx); o.goalRun = false; o.pendingFace = nil
             o.faceOnArrive = a == .feed ? d : nil
             o.frontOnArrive = a == .pat                                  // sits facing you: "me too!"
             o.pet.say(a == .pat ? "🥺 me too!" : "👀", 3.5)
@@ -855,13 +858,13 @@ final class PetChip: Chip {
             du.runner = Bool.random() ? l : r
             du.contactAt = t
         }
-        for d in [l, r] { d.faceOnArrive = (k == .sit || k == .nap) ? nil : other(d); d.frontOnArrive = false; d.goalRun = k == .pounce; d.front = false; d.idle = nil }
+        for d in [l, r] { d.faceOnArrive = (k == .sit || k == .nap) ? nil : other(d); d.frontOnArrive = false; d.goalRun = k == .pounce; d.front = false; d.idle = nil; d.pendingFace = nil }
     }
 
     private func endDuo(reward: Bool) {
         guard let du = duo else { return }
         for d in [du.l, du.r] {
-            d.goal = nil; d.passSide = 0; d.vx = 0; d.laneBack = false
+            d.goal = nil; d.passSide = 0; d.vx = 0; d.laneBack = false; d.pendingFace = nil
             d.pauseUntil = t + Double.random(in: 2...4)
             d.front = reward && Bool.random()
             if reward { d.pet.fun = min(100, d.pet.fun + 6) }
@@ -891,11 +894,18 @@ final class PetChip: Chip {
             let (sick, buddy) = a.pet.sick ? (a, b) : (b, a)
             if duo != nil { endDuo(reward: false) }
             if buddy.pet.reaction == nil, !buddy.pet.asleep, !ballOn {
-                if buddy.goal == nil && abs(buddy.mid - sick.mid) > 30 {
-                    buddy.goal = clampX(sick.mid + (buddy.mid < sick.mid ? -24 : 24) - 14)
+                let bg = abs(buddy.mid - sick.mid)
+                if buddy.goal == nil && (bg > 40 || bg < 31) {
+                    var gx = sick.mid + (buddy.mid < sick.mid ? -36 : 36) - 14
+                    if clampX(gx) != gx { gx = sick.mid + (buddy.mid < sick.mid ? 36 : -36) - 14 }
+                    buddy.goal = clampX(gx); buddy.pendingFace = nil
                     buddy.faceOnArrive = sick; buddy.frontOnArrive = false; buddy.goalRun = false
                 } else if buddy.goal == nil {
-                    buddy.fxSad = true; buddy.pauseUntil = t + 2; if abs(sick.mid - buddy.mid) > 8 { face(buddy, sick.mid > buddy.mid ? 1 : -1, "buddy") }
+                    buddy.fxSad = true; buddy.pauseUntil = t + 2; buddy.idle = nil
+                    if abs(sick.mid - buddy.mid) > 8 {
+                        face(buddy, sick.mid > buddy.mid ? 1 : -1, "buddy")
+                        if sick.pet.reaction == nil { face(sick, buddy.mid > sick.mid ? 1 : -1, "sickface") }   // they look at each other
+                    }
                 }
             }
             return
@@ -1099,8 +1109,7 @@ final class PetChip: Chip {
             let sh = NSShadow(); sh.shadowColor = NSColor(white: 0, alpha: 0.85); sh.shadowBlurRadius = 1.5; sh.shadowOffset = .zero
             let a = NSAttributedString(string: n, attributes: [.font: NSFont.systemFont(ofSize: 8.5, weight: .semibold),
                                                                .foregroundColor: NSColor(white: 0.97, alpha: 1), .shadow: sh])
-            let bx = d.turnS > 0.5 ? r.minX + d.mid - a.size().width / 2
-                : (d.dir > 0 ? r.minX + d.x + dogW - 4 : r.minX + d.x - a.size().width + 4)
+            let bx = r.minX + d.mid + (d.turnS > 0.5 ? 0 : d.dir * 4) - a.size().width / 2   // centred over the one talking
             a.draw(at: NSPoint(x: max(r.minX + 2, min(bx, r.maxX - a.size().width - 2)), y: r.maxY - a.size().height - 0.5))
         }
     }
@@ -1329,7 +1338,7 @@ final class PetChip: Chip {
         var shiver: CGFloat = 0
         var frontKick: CGFloat = 0, backKick: CGFloat = 0, backLift: CGFloat = 0, bodyRot: CGFloat = 0
         var rotPivot = NSPoint(x: 8, y: 2), pawRaise: CGFloat = 0
-        var panting = false, droopy = false
+        var panting = false, droopy = false, sadEyes = false
         var headRot: CGFloat = 0, scratching = false
         let breathe = CGFloat(sin(t * 1.8 + (d === dogs[1] ? 1.3 : 0))) * 0.35
         let flick = Int(t * 12) % 2 == 0
@@ -1420,7 +1429,7 @@ final class PetChip: Chip {
         if d.fxHappy { happyEyes = true; tailUp = 1.0; wagSpeed = 16; wagAmp = 0.55 }
         if d.fxBow { headDX = 2.0; headDY = -3.2; tailUp = 1.2; wagSpeed = 16; wagAmp = 0.55 }
         if d.fxLick { headDX = 1.6; osc = CGFloat(sin(t * 10)) * 0.9; tongue = true }
-        if d.fxSad { tailUp = -0.6; wagSpeed = 1.5; wagAmp = 0.1; headDY = -1.6 }
+        if d.fxSad { tailUp = -0.6; wagSpeed = 1.5; wagAmp = 0.1; headDY = -3.4; if !eyesClosed { droopy = true; sadEyes = true } }
 
         if asleep && !d.wasAsleep { d.yawnUntil = t + 1.8 }
         if !asleep && d.wasAsleep && kind == nil && !walking { d.stretchUntil = t + 1.8 }
@@ -1481,8 +1490,9 @@ final class PetChip: Chip {
                 INK.setFill(); NSBezierPath(ovalIn: NSRect(x: ex - 1.25, y: ey - 1.3, width: 2.5, height: 2.8)).fill()
                 NSColor.white.setFill(); NSBezierPath(ovalIn: NSRect(x: ex - 0.5, y: ey - 0.9, width: 0.8, height: 0.8)).fill()
                 fur.setFill(); NSBezierPath(rect: NSRect(x: ex - 1.6, y: ey + 0.15, width: 3.2, height: 1.8)).fill()   // the lid
-                let lid = NSBezierPath(); lid.move(to: NSPoint(x: ex - 1.4, y: ey + 0.25))
-                lid.curve(to: NSPoint(x: ex + 1.4, y: ey + 0.25), controlPoint1: NSPoint(x: ex - 0.5, y: ey - 0.1), controlPoint2: NSPoint(x: ex + 0.5, y: ey - 0.1))
+                // worried (sad): lid rises toward the nose side; hot/tired: flat heavy lid
+                let lid = NSBezierPath(); lid.move(to: NSPoint(x: ex - 1.4, y: ey + (sadEyes ? -0.15 : 0.25)))
+                lid.curve(to: NSPoint(x: ex + 1.4, y: ey + (sadEyes ? 0.95 : 0.25)), controlPoint1: NSPoint(x: ex - 0.5, y: ey - 0.1), controlPoint2: NSPoint(x: ex + 0.5, y: ey + (sadEyes ? 0.5 : -0.1)))
                 lid.lineWidth = 0.75; lid.lineCapStyle = .round
                 (L.fur.brightnessComponent < 0.4 ? NSColor(white: 0.75, alpha: 1) : INK).setStroke(); lid.stroke()
             } else {
