@@ -10,7 +10,7 @@ struct ExtraTool {
     static let icons = ["offline": "✈️", "stt": "🎙️", "tts": "🔊", "image": "🎨", "upscale": "🔍", "video": "🎬", "music": "🎵",
                         "3d": "🧊", "bgremove": "✂️", "voiceclean": "🧹", "stems": "🎚️", "captions": "💬",
                         "search": "🗂️", "reframe": "📱", "videobg": "🪄", "videoupscale": "📺",
-                        "voiceclone": "🗣️", "dub": "🌐"]
+                        "voiceclone": "🗣️", "dub": "🌐", "erase": "🩹", "photofix": "🖼️", "sfx": "💥", "notes": "📝"]
 }
 
 final class Extras {
@@ -33,7 +33,11 @@ final class Extras {
                  ExtraTool(key: "videobg", title: "Video BG", detail: "video background removal"),
                  ExtraTool(key: "videoupscale", title: "Video upscale", detail: "sharpen video"),
                  ExtraTool(key: "voiceclone", title: "Voice clone", detail: "your voice"),
-                 ExtraTool(key: "dub", title: "Dubbing", detail: "ID / EN dub")]
+                 ExtraTool(key: "dub", title: "Dubbing", detail: "ID / EN dub"),
+                 ExtraTool(key: "erase", title: "Eraser", detail: "remove objects"),
+                 ExtraTool(key: "photofix", title: "Photo fix", detail: "restore + colorize"),
+                 ExtraTool(key: "sfx", title: "Sound FX", detail: "sound effects"),
+                 ExtraTool(key: "notes", title: "Notes", detail: "meeting notes")]
     private(set) var state: [String: Bool] = [:]
     private(set) var busy: String? = nil
     var onChange: (() -> Void)?
@@ -74,7 +78,7 @@ final class Extras {
         if on.count > 2 { return "\(on.count) on" }  // more than two would widen the chip and overflow the bar
         let short = ["offline": "OFF", "stt": "STT", "tts": "TTS", "image": "IMG", "upscale": "UPS", "video": "VID", "music": "MUS", "3d": "3D",
                      "bgremove": "CUT", "voiceclean": "CLN", "stems": "STM", "captions": "CAP", "search": "SRCH",
-                     "reframe": "RFR", "videobg": "VBG", "videoupscale": "VUP", "voiceclone": "VOX", "dub": "DUB"]
+                     "reframe": "RFR", "videobg": "VBG", "videoupscale": "VUP", "voiceclone": "VOX", "dub": "DUB", "erase": "ERS", "photofix": "FIX", "sfx": "SFX", "notes": "NTS"]
         return on.map { short[$0.key] ?? $0.key.uppercased() }.joined(separator: " · ")
     }
 }
