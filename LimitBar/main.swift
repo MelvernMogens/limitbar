@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let petClean = PetActionChip("🧹", "Clean")
     private let petBath = PetActionChip("🛁", "Bath")
     private let petDress = PetActionChip("🎀", "Outfit")
+    private let petTrick = PetActionChip("🐾", "Trick")
     private var pinnedProvider: ProviderID {
         get { ProviderID(rawValue: UserDefaults.standard.string(forKey: "pinnedProvider") ?? "") ?? .claude }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "pinnedProvider") }
@@ -103,7 +104,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         }
         DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.pet"), object: nil, queue: .main) { [weak self] n in
             // test hook: object feed|play|pat|med
-            switch n.object as? String ?? "" {
+            let cmd = n.object as? String ?? ""
+            if cmd.hasPrefix("duo:") { self?.petChip.startDuo(String(cmd.dropFirst(4))); return }
+            if cmd.hasPrefix("dbg:") { self?.petChip.debug(String(cmd.dropFirst(4))); return }
+            switch cmd {
+            case "hot": Pet.forceHot = true
+            case "cool": Pet.forceHot = false
+            case "trick": Pet.shared.trick()
+            case "bday": Pet.forceBirthday = true; Pet.shared.birthdayCheck()
+            case let o where o.hasPrefix("outfit:"): Pet.shared.outfit = String(o.dropFirst(7))
+            case let tr where tr.hasPrefix("trick:"): Pet.shared.copyTrick(String(tr.dropFirst(6)))
+            case "awake": Pet.forceAwake = true
+            case "night": Pet.forceAwake = false
+            case "candie": Pet.selected = Pet.candie
+            case "dior": Pet.selected = Pet.dior
+            case "sick": Pet.shared.health = 30; Pet.shared.sick = true
+            case "cure": Pet.shared.health = 90; Pet.shared.sick = false
             case "feed": Pet.shared.feed()
             case "play": Pet.shared.play()
             case "pat": Pet.shared.pat()
@@ -163,8 +179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                 return (u.id.name, max(w.used, u.weekly?.used ?? 0))
             }
             let tasks = self.sessions.map { (id: $0.id, who: $0.profile == "default" ? "Hermes" : $0.profile.capitalized, working: $0.status == .working) }
-            Pet.shared.observe(cpu: st.cpu, ramFrac: st.ramFrac, pressure: st.pressure, battery: st.battery, charging: st.charging,
-                               onAC: st.onAC, idleSeconds: idle, limits: limits, tasks: tasks)
+            for (i, pet) in Pet.all.enumerated() {          // both react; only Candie talks, so bubbles don't double up
+                pet.observe(cpu: st.cpu, ramFrac: st.ramFrac, pressure: st.pressure, battery: st.battery, charging: st.charging,
+                            onAC: st.onAC, idleSeconds: idle, limits: limits, tasks: tasks, speaks: i == 0)
+            }
         }
         _ = sampler.sample()
         [refreshTimer, sessionTimer, tickTimer, statsTimer].forEach { $0?.tolerance = 0.3 }
@@ -242,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             let p = Pet.shared
             tb.defaultItemIdentifiers = [id("back"), id("pet.status")]
                 + (p.sick ? [id("pet.med")] : []) + (p.poops > 0 ? [id("pet.clean")] : [])
-                + [id("pet.feed"), id("pet.play"), id("pet.pat")]
+                + [id("pet.feed"), id("pet.play"), id("pet.pat"), id("pet.trick")]
                 + (p.dirt >= 40 ? [id("pet.bath")] : []) + (p.unlockedOutfits.count > 1 ? [id("pet.dress")] : [])
         case .usagePick:
             tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") }
@@ -279,6 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "pet.clean": view = petClean
         case "pet.bath": view = petBath
         case "pet.dress": view = petDress
+        case "pet.trick": view = petTrick
         case "tools.strip":
             toolsStrip.update(extras.tools.compactMap { toolChip($0.key) })
             view = toolsStrip
@@ -332,10 +351,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
         petChip.onTap = { [weak self] in self?.mode = .petPick; self?.rebuildBar() }
+        petStatus.onTap = { [weak self] in                               // switch which dog the buttons care for
+            Pet.selected = Pet.selected === Pet.candie ? Pet.dior : Pet.candie
+            self?.rebuildBar()
+        }
         let care: [(PetActionChip, () -> Void)] = [(petFeed, { Pet.shared.feed() }), (petPlay, { Pet.shared.play() }),
                                                    (petPat, { Pet.shared.pat() }), (petMed, { Pet.shared.medicine() }),
                                                    (petClean, { Pet.shared.clean() }), (petBath, { Pet.shared.bath() }),
-                                                   (petDress, { Pet.shared.dress() })]
+                                                   (petDress, { Pet.shared.dress() }), (petTrick, { Pet.shared.trick() })]
         for (chip, act) in care {
             chip.onTap = { [weak self] in act(); self?.mode = .overview; self?.rebuildBar() }  // back to watch it react
         }
