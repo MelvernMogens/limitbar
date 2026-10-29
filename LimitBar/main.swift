@@ -258,10 +258,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                 + [.fixedSpaceSmall, id("local"), id("tools"), id("stats"), id("pet")]
         case .petPick:
             let p = Pet.shared
-            tb.defaultItemIdentifiers = [id("back"), id("pet.status")]
-                + (p.sick ? [id("pet.med")] : []) + (p.poops > 0 ? [id("pet.clean")] : [])
-                + [id("pet.feed"), id("pet.play"), id("pet.pat"), id("pet.trick")]
-                + (p.dirt >= 40 ? [id("pet.bath")] : []) + (p.unlockedOutfits.count > 1 ? [id("pet.dress")] : [])
+            // the yard stays visible so you watch her react (or say "I'm full!"); buttons are compact icons
+            // no back chip: tap the dogs again to go back. Yard + status + 6 buttons ≈ 675 pt of ~700: with more
+            // needs showing, the fun buttons (outfit, then trick) step aside so macOS never drops the yard.
+            var buttons = (p.sick ? ["pet.med"] : []) + (p.poops > 0 ? ["pet.clean"] : [])
+                + ["pet.feed", "pet.play", "pet.pat", "pet.trick"]
+                + (p.dirt >= 40 ? ["pet.bath"] : []) + (p.unlockedOutfits.count > 1 ? ["pet.dress"] : [])
+            for extra in ["pet.dress", "pet.trick"] where buttons.count > 6 { buttons.removeAll { $0 == extra } }
+            tb.defaultItemIdentifiers = [id("pet"), id("pet.status")] + buttons.map { id($0) }
         case .usagePick:
             tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") }
         case .detail(let pid):
@@ -350,7 +354,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             }
         }
         hermesChip.onTap = { [weak self] in self?.mode = .sessions; self?.rebuildBar() }
-        petChip.onTap = { [weak self] in self?.mode = .petPick; self?.rebuildBar() }
+        petChip.onTap = { [weak self] in                                  // dogs: open the pet row, tap again to close it
+            guard let self else { return }
+            if case .petPick = self.mode { self.mode = .overview } else { self.mode = .petPick }
+            self.rebuildBar()
+        }
         petStatus.onTap = { [weak self] in                               // switch which dog the buttons care for
             Pet.selected = Pet.selected === Pet.candie ? Pet.dior : Pet.candie
             self?.rebuildBar()
@@ -360,7 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                                                    (petClean, { Pet.shared.clean() }), (petBath, { Pet.shared.bath() }),
                                                    (petDress, { Pet.shared.dress() }), (petTrick, { Pet.shared.trick() })]
         for (chip, act) in care {
-            chip.onTap = { [weak self] in act(); self?.mode = .overview; self?.rebuildBar() }  // back to watch it react
+            chip.onTap = { [weak self] in act(); self?.rebuildBar() }  // stay on the pet row (needs-based buttons refresh)
         }
         localChip.onTap = { [weak self] in self?.localChipTapped() }
         toolsChip.extras = extras

@@ -1771,7 +1771,7 @@ final class PetStatusChip: Chip {
         // bond level + streak, right side of the top line
         let lv = attr("Lv\(pet.level)" + (pet.streak > 1 ? " 🔥\(pet.streak)" : ""), 9, .bold, .systemPink)
         lv.draw(at: NSPoint(x: r.maxX - lv.size().width - 8, y: r.maxY - lv.size().height - 1.5))
-        let lt = NSRect(x: r.maxX - lv.size().width - 8, y: r.maxY - 14.5, width: lv.size().width, height: 1.6)
+        let lt = NSRect(x: r.maxX - lv.size().width - 8, y: r.maxY - 15.8, width: lv.size().width, height: 1.6)
         trackColor.setFill(); NSBezierPath(roundedRect: lt, xRadius: 0.8, yRadius: 0.8).fill()
         NSColor.systemPink.setFill()
         NSBezierPath(roundedRect: NSRect(x: lt.minX, y: lt.minY, width: max(1.6, lt.width * CGFloat(pet.nextLevelProgress)), height: 1.6), xRadius: 0.8, yRadius: 0.8).fill()
@@ -1796,13 +1796,11 @@ final class PetActionChip: Chip {
     init(_ icon: String, _ label: String) {
         self.icon = icon; self.label = label
         super.init()
-        setWidth(attr(label, 11, .semibold).size().width + 38)
+        setWidth(30)   // icon only: the row also holds the yard + status, ~700 pt budget
     }
     required init?(coder: NSCoder) { fatalError() }
     override func drawContent(_ r: NSRect) {
-        let i = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 14)])
-        i.draw(at: NSPoint(x: r.minX + 7, y: r.midY - i.size().height / 2))
-        let t = attr(label, 11, .semibold)
-        t.draw(at: NSPoint(x: r.minX + 29, y: r.midY - t.size().height / 2))
+        let i = NSAttributedString(string: icon, attributes: [.font: NSFont.systemFont(ofSize: 15)])
+        i.draw(at: NSPoint(x: r.midX - i.size().width / 2, y: r.midY - i.size().height / 2))
     }
 }
