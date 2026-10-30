@@ -60,9 +60,14 @@ final class StatsSampler {
         }
         guard kr == KERN_SUCCESS else { return }
         let page = Double(vm_kernel_page_size)
-        let app = Double(vm.internal_page_count) - Double(vm.purgeable_count)
-        stats.ramUsed = (app + Double(vm.wire_count) + Double(vm.compressor_page_count)) * page
-        stats.ramTotal = Double(ProcessInfo.processInfo.physicalMemory)
+        // Activity Monitor's "Memory Used" = physical − (free − speculative + file-backed).
+        // This includes the RAM the system reserves for firmware/GPU (hw.memsize − hw.memsize_usable),
+        // which App+Wired+Compressed alone misses (~0.75 GB on this Mac). Matches fastfetch, which
+        // was checked against Activity Monitor.
+        let total = Double(ProcessInfo.processInfo.physicalMemory)
+        let reclaimable = (Double(vm.free_count) - Double(vm.speculative_count) + Double(vm.external_page_count)) * page
+        stats.ramUsed = max(0, total - reclaimable)
+        stats.ramTotal = total
         var level: Int32 = 1
         var size = MemoryLayout<Int32>.size
         if sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 { stats.pressure = Int(level) }
