@@ -177,11 +177,11 @@ final class Pet {
         fun = max(0, fun - (5 + 2 * Double(poops) + (dirt > 70 ? 1.5 : 0)) * hours * rate)
         dirt = min(100, dirt + 2.5 * hours)
         if now >= nextPoop && !asleep {
-            if poops < 3 { poops += 1 }
-            nextPoop = now.addingTimeInterval(Double.random(in: 3...6) * 3600)
+            if poops < 2 { poops += 1 }
+            nextPoop = now.addingTimeInterval(Double.random(in: 8...12) * 3600)   // ~2-3 a day
             d.set(nextPoop.timeIntervalSince1970, forKey: key("nextPoop"))
         }
-        if hunger < 20 || fun < 15 || poops >= 3 {
+        if hunger < 20 || fun < 15 || poops >= 2 {
             health = max(0, health - 5 * hours)          // neglect wears her down
         } else if !sick {
             health = min(100, health + 4 * hours)
@@ -220,7 +220,8 @@ final class Pet {
         if hunger >= 90 { say("😋 I'm full!", 2.5); return }
         let gain = min(40, 100 - hunger)
         hunger += gain; fun = min(100, fun + 3); cared(3 * gain / 40)
-        nextPoop = min(nextPoop, Date().addingTimeInterval(Double.random(in: 1...2) * 3600))   // what goes in…
+        // a meal brings the next poop a bit closer, but never sooner than 4 h from now
+        nextPoop = max(Date().addingTimeInterval(4 * 3600), nextPoop.addingTimeInterval(-3600))
         d.set(nextPoop.timeIntervalSince1970, forKey: key("nextPoop"))
         react(.feed, "🍖", 4.5)
     }
