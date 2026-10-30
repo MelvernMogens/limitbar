@@ -426,14 +426,23 @@ final class PetChip: Chip {
         super.init()
         setWidth(yard)
         dogs = [Dog(Pet.candie, candieLook, x: 40, dir: 1), Dog(Pet.dior, diorLook, x: 140, dir: -1)]
-        let tm = Timer(timeInterval: 1.0 / 24.0, repeats: true) { [weak self] _ in self?.step() }
-        tm.tolerance = 0.004
-        RunLoop.main.add(tm, forMode: .common)
-        timer = tm
+        startTimer(fps: 24)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     // MARK: time helpers (all motion is in "12 fps frames" scaled by real elapsed time, so any frame rate looks the same)
+    /// Even frame pacing matters more than fps: skipping every few frames looked like lag, so battery
+    /// mode runs a steady, slower timer instead.
+    private var timerFPS = 0.0
+    private func startTimer(fps: Double) {
+        guard fps != timerFPS else { return }
+        timerFPS = fps
+        timer?.invalidate()
+        let tm = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.step() }
+        tm.tolerance = 0.002
+        RunLoop.main.add(tm, forMode: .common)
+        timer = tm
+    }
     private func every(_ n: CGFloat) -> Bool { floor(simF / n) != floor(prevF / n) }
     private func chance(_ oneIn: CGFloat) -> Bool { CGFloat.random(in: 0..<1) < s / oneIn }
     private func ease(_ base: CGFloat, _ ds: CGFloat) -> CGFloat { 1 - pow(1 - base, max(0, ds)) }
@@ -488,6 +497,7 @@ final class PetChip: Chip {
                let src = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String? {
                 onBattery = src == kIOPSBatteryPowerValue
             }
+            startTimer(fps: onBattery ? 20 : 24)
         }
         if away { return }
         dtNow = dt; t += dt; s = CGFloat(dt * 12); prevF = simF; simF += s
@@ -528,8 +538,7 @@ final class PetChip: Chip {
                 || t < $0.yawnUntil || t < $0.stretchUntil || $0.bowlA > 0.03
         }
         if busy {
-            // 24 fps while things move, ~18 on battery
-            if !onBattery || every(0.66) { needsDisplay = true }
+            needsDisplay = true   // every tick: 24 fps on power, a steady 20 on battery
         } else {
             let f = Int(t * 10)                                   // resting: 10 fps is enough for breathing + tail
             if f != lastRestDraw { lastRestDraw = f; needsDisplay = true }
