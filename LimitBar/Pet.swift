@@ -426,7 +426,7 @@ final class PetChip: Chip {
         super.init()
         setWidth(yard)
         dogs = [Dog(Pet.candie, candieLook, x: 40, dir: 1), Dog(Pet.dior, diorLook, x: 140, dir: -1)]
-        startTimer(fps: 24)
+        startTimer(fps: 20)
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -497,7 +497,7 @@ final class PetChip: Chip {
                let src = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() as String? {
                 onBattery = src == kIOPSBatteryPowerValue
             }
-            startTimer(fps: onBattery ? 20 : 24)
+            startTimer(fps: 20)   // user: 20 fps always (plugged in or battery)
         }
         if away { return }
         dtNow = dt; t += dt; s = CGFloat(dt * 12); prevF = simF; simF += s
