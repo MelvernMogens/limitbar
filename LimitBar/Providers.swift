@@ -162,6 +162,9 @@ func fetchClaude() -> ProviderUsage {
         return UsageWindow(label: label, used: util / 100, resetsAt: parseISO(w["resets_at"] as? String), length: len)
     }
     u.session = window("five_hour", "5h", 5 * 3600)
+    // A fresh window (no usage yet) comes back as five_hour: null, which is 0%, not a failure.
+    // Treating it as failed left the bar stuck on the previous account's numbers after an account switch.
+    if u.session == nil, obj.keys.contains("five_hour") { u.session = UsageWindow(label: "5h", used: 0, resetsAt: nil, length: 5 * 3600) }
     u.weekly = window("seven_day", "wk", 7 * 86400)
     if let extra = obj["extra_usage"] as? [String: Any], (extra["is_enabled"] as? Bool) == true,
        let used = extra["used_credits"] as? Double, let lim = extra["monthly_limit"] as? Double {
