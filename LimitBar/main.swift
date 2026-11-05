@@ -3,7 +3,7 @@ import UserNotifications
 
 // LimitBar v2 — Touch Bar cockpit for AI coding plans + Hermes.
 //
-//  overview : [GLM][Claude][Codex]  [Hermes now]  [cpu ram bat]     | control strip
+//  overview : [Claude][Codex]  [Hermes now]  [cpu ram bat]     | control strip
 //  detail   : [‹][logo plan][5h ▬▬|▬ pace][weekly ▬|▬▬ pace][extras]
 //  sessions : [‹][● working …][✓ done …][· idle …]  (swipe, tap = open in Hermes)
 
@@ -436,12 +436,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     func refreshUsage() {
         guard !fetching else { return }
         fetching = true
-        let key = config.glmKey
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let group = DispatchGroup()
             var results: [ProviderID: ProviderUsage] = [:]
             let lock = NSLock()
-            for (pid, fn) in [(ProviderID.glm, { fetchGLM(key: key) }), (.claude, fetchClaude), (.codex, fetchCodex)] {
+            for (pid, fn) in [(ProviderID.claude, fetchClaude), (.codex, fetchCodex)] {
                 group.enter()
                 DispatchQueue.global(qos: .utility).async {
                     let r = fn()
@@ -581,8 +580,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         switch pid {
         case .claude:
             DispatchQueue.global().async { healClaudeTokenNow(); DispatchQueue.main.async { self.refreshUsage() } }
-        case .glm:
-            settings?.show()
         case .codex:
             runInTerminal("codex login")
         }

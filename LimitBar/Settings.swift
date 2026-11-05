@@ -2,7 +2,6 @@ import AppKit
 import ServiceManagement
 
 struct Config {
-    var glmKey: String = ""
     var refreshSeconds: Double = 60
     var notifications: Bool = true
 
@@ -11,28 +10,14 @@ struct Config {
     static func load() -> Config {
         var c = Config()
         if let obj = jsonObject(FileManager.default.contents(atPath: path)) {
-            if let v = obj["glmKey"] as? String { c.glmKey = v }
             if let v = obj["refreshSeconds"] as? Double { c.refreshSeconds = max(30, v) }
             if let v = obj["notifications"] as? Bool { c.notifications = v }
-        }
-        if c.glmKey.isEmpty, let text = try? String(contentsOfFile: hermesHome() + "/.env", encoding: .utf8) {
-            for line in text.split(separator: "\n") {
-                let parts = line.split(separator: "=", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                let name = parts[0].trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "export ", with: "")
-                if name == "GLM_API_KEY" || name == "ZAI_API_KEY" {
-                    c.glmKey = parts[1].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                }
-            }
         }
         return c
     }
 
-    /// The key is only persisted when the user typed one (otherwise it keeps following ~/.hermes/.env).
-    func save(persistKey: Bool) {
-        var obj: [String: Any] = ["refreshSeconds": refreshSeconds, "notifications": notifications]
-        if persistKey, !glmKey.isEmpty { obj["glmKey"] = glmKey }
-        else if let old = jsonObject(FileManager.default.contents(atPath: Config.path)), let k = old["glmKey"] { obj["glmKey"] = k }
+    func save() {
+        let obj: [String: Any] = ["refreshSeconds": refreshSeconds, "notifications": notifications]
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: Config.path), options: .atomic)
             chmod(Config.path, 0o600)
@@ -51,7 +36,6 @@ func healClaudeTokenNow() {
 
 final class SettingsController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
-    private var keyField: NSSecureTextField!
     private var refreshPopup: NSPopUpButton!
     private var notifBox: NSButton!
     private var loginBox: NSButton!
@@ -105,13 +89,6 @@ final class SettingsController: NSObject, NSWindowDelegate {
             sv.addArrangedSubview(row([name, s]))
         }
 
-        keyField = NSSecureTextField()
-        keyField.placeholderString = "empty = use GLM_API_KEY from ~/.hermes/.env"
-        keyField.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        let keyLabel = label("GLM key", size: 12)
-        keyLabel.widthAnchor.constraint(equalToConstant: 60).isActive = true
-        sv.addArrangedSubview(row([keyLabel, keyField]))
-
         let note = label("Claude: read from the Claude Code keychain item. Codex: ~/.codex/auth.json. Tokens are only ever sent to their own provider.",
                          size: 10.5, color: .tertiaryLabelColor)
         note.preferredMaxLayoutWidth = 430
@@ -145,7 +122,6 @@ final class SettingsController: NSObject, NSWindowDelegate {
 
     private func loadValues() {
         guard let cfg = app?.config else { return }
-        keyField.stringValue = ""
         refreshPopup.selectItem(withTag: Int(cfg.refreshSeconds))
         if refreshPopup.selectedItem == nil { refreshPopup.selectItem(withTag: 60) }
         notifBox.state = cfg.notifications ? .on : .off
@@ -168,11 +144,9 @@ final class SettingsController: NSObject, NSWindowDelegate {
     @objc private func saveTapped() {
         guard let app else { return }
         var cfg = app.config
-        let typed = keyField.stringValue.trimmingCharacters(in: .whitespaces)
-        if !typed.isEmpty { cfg.glmKey = typed }
         cfg.refreshSeconds = Double(refreshPopup.selectedTag())
         cfg.notifications = notifBox.state == .on
-        cfg.save(persistKey: !typed.isEmpty)
+        cfg.save()
         setLaunchAtLogin(loginBox.state == .on)
         app.configUpdated()
         window?.close()

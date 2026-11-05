@@ -3,20 +3,19 @@ import AppKit
 // MARK: - Model
 
 enum ProviderID: String, CaseIterable {
-    case glm, claude, codex
+    case claude, codex
 
     var name: String {
-        switch self { case .glm: return "GLM"; case .claude: return "Claude"; case .codex: return "Codex" }
+        switch self { case .claude: return "Claude"; case .codex: return "Codex" }
     }
     var color: NSColor {
         switch self {
-        case .glm: return NSColor(white: 0.96, alpha: 1)
         case .claude: return NSColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 1)   // Anthropic clay
         case .codex: return NSColor(srgbRed: 0.55, green: 0.50, blue: 1.0, alpha: 1)
         }
     }
     var logoPath: String {
-        switch self { case .glm: return ZHIPU_PATH; case .claude: return CLAUDE_PATH; case .codex: return OPENAI_PATH }
+        switch self { case .claude: return CLAUDE_PATH; case .codex: return OPENAI_PATH }
     }
 }
 
@@ -89,40 +88,6 @@ let appSupportDir: String = {
     try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
     return d
 }()
-
-// MARK: - GLM (z.ai coding plan)
-
-func fetchGLM(key: String) -> ProviderUsage {
-    var u = ProviderUsage(id: .glm)
-    guard !key.isEmpty else { u.state = .authExpired("no API key"); return u }
-    guard let obj = jsonObject(curl(["-H", "Authorization: Bearer " + key,
-                                     "-H", "Accept: application/json",
-                                     "https://api.z.ai/api/monitor/usage/quota/limit"])),
-          let data = obj["data"] as? [String: Any],
-          let limits = data["limits"] as? [[String: Any]] else {
-        u.state = .failed("no response"); return u
-    }
-    if let level = data["level"] as? String { u.plan = level.capitalized }
-    for l in limits {
-        let type = l["type"] as? String
-        let unit = l["unit"] as? Int
-        let pct = (l["percentage"] as? Double ?? 0) / 100
-        let reset = (l["nextResetTime"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-        if type == "TOKENS_LIMIT" && unit == 3 {
-            u.session = UsageWindow(label: "5h", used: pct, resetsAt: reset, length: 5 * 3600)
-        } else if type == "TOKENS_LIMIT" && unit == 6 {
-            u.weekly = UsageWindow(label: "wk", used: pct, resetsAt: reset, length: 7 * 86400)
-        } else if type == "TIME_LIMIT" {
-            // monthly MCP tool-call quota (web search / reader / vision)
-            if let cur = l["currentValue"] as? Int, let tot = l["usage"] as? Int {
-                u.extras.append("MCP tools \(cur)/\(tot)")
-            }
-        }
-    }
-    u.state = u.session == nil ? .failed("no 5h window") : .ok
-    u.fetchedAt = Date()
-    return u
-}
 
 // MARK: - Claude (subscription OAuth)
 
