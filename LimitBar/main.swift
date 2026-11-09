@@ -599,7 +599,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     }
 
     private var lastLoginWarn = Date.distantPast
+    private var lastAccountWarn: [String: Date] = [:]
     private func checkClaudeLogin() {
+        // with saved accounts: warn per account (inactive ones too), once a day each, from 3 days out
+        claudeAccounts.reload()
+        if claudeAccounts.available {
+            guard config.notifications else { return }
+            for a in claudeAccounts.accounts {
+                guard let left = a.loginLeft, left < 3 * 86400,
+                      Date().timeIntervalSince(lastAccountWarn[a.name] ?? .distantPast) > 86400 else { continue }
+                lastAccountWarn[a.name] = Date()
+                notify(left <= 0 ? "Claude login \(a.name) expired" : "Claude login \(a.name) expires in \(fmtLeft(left))",
+                       "Run `claude login` with \(a.email), then tap Claude on the Touch Bar. It's saved automatically.")
+            }
+            return
+        }
         guard config.notifications, Date().timeIntervalSince(lastLoginWarn) > 86400,
               let ms = ClaudeAuth.current()?["refreshTokenExpiresAt"] as? Double else { return }
         let left = Date(timeIntervalSince1970: ms / 1000).timeIntervalSinceNow
@@ -703,7 +717,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         if claudeAccounts.available {
             for a in claudeAccounts.accounts {
                 let busy = claudeAccounts.switching == a.name
-                let it = NSMenuItem(title: "   Claude account: \(a.name)\(busy ? "  (switching…)" : "")",
+                let days = loginLeftText(a.loginLeft).map { "  ·  login \($0)" } ?? ""
+                let it = NSMenuItem(title: "   Claude account: \(a.name)\(busy ? "  (switching…)" : days)",
                                     action: claudeAccounts.isActive(a) ? nil : #selector(menuSwitchAccount(_:)), keyEquivalent: "")
                 it.state = claudeAccounts.isActive(a) ? .on : .off
                 it.target = self

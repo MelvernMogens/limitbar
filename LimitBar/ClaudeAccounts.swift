@@ -7,7 +7,18 @@ import AppKit
 // saved accounts and keeps rotated tokens in sync. LimitBar never touches tokens here: it reads the
 // non-secret index (~/.hermes/claude-akun.json: names + emails) and runs the script on a tap.
 
-struct ClaudeAccount { let name: String; let email: String }
+struct ClaudeAccount {
+    let name: String; let email: String
+    let loginExpires: Date?          // `claude login` hard-expires ~30 days after logging in
+    var loginLeft: TimeInterval? { loginExpires?.timeIntervalSinceNow }
+}
+
+/// Short "login left" text: "28d", "2d 5h", "expired".
+func loginLeftText(_ left: TimeInterval?) -> String? {
+    guard let left else { return nil }
+    if left <= 0 { return "login expired" }
+    return left >= 86400 ? "\(Int(left / 86400))d" : fmtLeft(left)
+}
 
 final class ClaudeAccounts {
     static let script = NSHomeDirectory() + "/.hermes/bin/claude-akun"
@@ -29,7 +40,8 @@ final class ClaudeAccounts {
            let list = obj["accounts"] as? [[String: Any]] {
             accounts = list.compactMap {
                 guard let n = $0["name"] as? String, let e = $0["email"] as? String else { return nil }
-                return ClaudeAccount(name: n, email: e)
+                let ms = $0["loginExpires"] as? Double
+                return ClaudeAccount(name: n, email: e, loginExpires: ms.map { Date(timeIntervalSince1970: $0 / 1000) })
             }
         }
         // the login Claude Code / Hermes actually use right now
@@ -103,11 +115,16 @@ final class AccountChip: Chip {
         guard let s = store else { return }
         let clay = ProviderID.claude.color
         let active = s.isActive(account)
+        // login days left ride along; ≤3 days turns orange, expired turns red (a switch to it would fail)
+        let left = account.loginLeft
+        let days = loginLeftText(left)
         let status: (String, NSColor) =
             s.switching == account.name ? ("switching…", dimText)
-            : s.failed == account.name ? ("failed", .systemRed)
-            : active ? ("in use", clay)
-            : ("tap to switch", faintText)
+            : s.failed == account.name ? ("failed · claude login", .systemRed)
+            : (left ?? 1) <= 0 ? ("login expired", .systemRed)
+            : (left ?? .infinity) < 3 * 86400 ? ("login \(days!) left", .systemOrange)
+            : active ? ("in use" + (days.map { " · \($0)" } ?? ""), clay)
+            : ("tap to switch" + (days.map { " · \($0)" } ?? ""), faintText)
         top = attr(account.name, 11, .semibold, active ? .white : NSColor(white: 0.85, alpha: 1))
         bottom = attr(status.0, 9, .medium, status.1)
         border = active ? clay.withAlphaComponent(0.55) : nil
