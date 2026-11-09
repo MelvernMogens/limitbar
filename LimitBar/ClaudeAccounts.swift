@@ -39,6 +39,23 @@ final class ClaudeAccounts {
         }
     }
 
+    /// `claude-akun sync`: files a fresh `claude login` into its account's slot (or a new slot for a new
+    /// email), so re-logging in never needs a manual save. Runs only when the Claude row opens — no polling.
+    private var syncing = false
+    func sync(done: @escaping () -> Void) {
+        guard !syncing, switching == nil, FileManager.default.isExecutableFile(atPath: Self.script) else { return }
+        syncing = true
+        DispatchQueue.global(qos: .utility).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: Self.script)
+            p.arguments = ["sync"]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            if (try? p.run()) != nil { p.waitUntilExit() }
+            DispatchQueue.main.async { self.syncing = false; self.reload(); done() }
+        }
+    }
+
     /// Runs `claude-akun <name>` off the main thread. Taps while a switch runs are ignored.
     func switchTo(_ name: String, done: @escaping (Bool) -> Void) {
         guard switching == nil else { return }

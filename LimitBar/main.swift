@@ -434,6 +434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         claudeAccounts.reload()
         accountChips.removeAll()                  // names / active account may have changed
         mode = .usagePick
+        let before = claudeAccounts.accounts.map { $0.name }
+        claudeAccounts.sync { [weak self] in      // a fresh `claude login` is saved automatically
+            guard let self, case .usagePick = self.mode else { return }
+            if self.claudeAccounts.accounts.map({ $0.name }) != before { self.accountChips.removeAll(); self.rebuildBar() }
+            else { self.accountChips.values.forEach { $0.relayout() } }
+        }
     }
 
     private func accountChip(_ name: String) -> AccountChip? {
