@@ -10,7 +10,7 @@ import UserNotifications
 enum Mode { case overview, detail(ProviderID), sessions, localPick, toolsPick, usagePick, petPick }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NSMenuDelegate {
-    static let version = "2.4"
+    static let version = "2.5"
 
     private let trayID = NSTouchBarItem.Identifier("com.melvern.limitbar.tray")
     private var touchBar: NSTouchBar?
@@ -47,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
     private let toolsHeader = ToolsHeader()
     private let toolsStrip = ToolsStrip()
     private let usageHeader = UsagePickHeader()
+    private let claudeAccounts = ClaudeAccounts()
+    private let accountHeader = AccountPickHeader()
+    private var accountChips: [String: AccountChip] = [:]
     private let petChip = PetChip()
     private let petStatus = PetStatusChip()
     private let petFeed = PetActionChip("🍖", "Feed")
@@ -88,11 +91,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.mode"), object: nil, queue: .main) { [weak self] n in
             guard let self, let s = n.object as? String else { return }
             if s == "sessions" { self.mode = .sessions }
-            else if s == "usage" { self.mode = .usagePick }
+            else if s == "usage" { self.openUsagePick() }
             else if s == "pet" { self.mode = .petPick }
             else if s.hasPrefix("detail."), let p = ProviderID(rawValue: String(s.dropFirst(7))) { self.mode = .detail(p) }
             else { self.mode = .overview }
             self.rebuildBar()
+        }
+        // test hook: same path as tapping an account chip (object = account name)
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.account"), object: nil, queue: .main) { [weak self] n in
+            guard let self, let name = n.object as? String else { return }
+            self.claudeAccounts.reload()
+            self.switchClaudeAccount(name)
         }
         DistributedNotificationCenter.default().addObserver(forName: .init("com.melvern.limitbar.localai"), object: nil, queue: .main) { [weak self] n in
             // object: "on:<model-id>" | "off" | "pick" (test hook + lets Hermes flip the switch)
@@ -267,7 +276,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             for extra in ["pet.dress", "pet.trick"] where buttons.count > 6 { buttons.removeAll { $0 == extra } }
             tb.defaultItemIdentifiers = [id("pet"), id("pet.status")] + buttons.map { id($0) }
         case .usagePick:
-            tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") }
+            // Claude accounts sit next to the AIs: tap Claude on the bar → this row → tap an account to switch
+            let accts = claudeAccounts.available
+                ? [.fixedSpaceSmall, id("acct.header")] + claudeAccounts.accounts.map { id("acct.\($0.name)") } : []
+            tb.defaultItemIdentifiers = [id("back"), id("up.header")] + ProviderID.allCases.map { id("p.\($0.rawValue)") } + accts
         case .detail(let pid):
             let hasWeek = usages.first { $0.id == pid }?.weekly != nil
             tb.defaultItemIdentifiers = [id("back"), id("header"), id("w.session")] + (hasWeek ? [id("w.weekly")] : []) + [id("extras")]
@@ -292,6 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         case "tools": view = toolsChip
         case "tools.header": view = toolsHeader
         case "up.header": view = usageHeader
+        case "acct.header": view = accountHeader
         case "pet": view = petChip
         case "pet.status": view = petStatus
         case "pet.feed": view = petFeed
@@ -315,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             if key.hasPrefix("p."), let p = ProviderID(rawValue: String(key.dropFirst(2))) { view = providerChips[p] }
             else if key.hasPrefix("lm.") { view = modelChip(String(key.dropFirst(3))) }
             else if key.hasPrefix("tool.") { view = toolChip(String(key.dropFirst(5))) }
+            else if key.hasPrefix("acct.") { view = accountChip(String(key.dropFirst(5))) }
             else { view = nil }
         }
         guard let v = view else { return nil }
@@ -348,7 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                         self.mode = .overview
                     }
                 default:
-                    self.mode = .usagePick                // main bar: open the three-AI picker
+                    self.openUsagePick()                  // main bar: open the AI picker (+ Claude accounts)
                 }
                 self.rebuildBar()
             }
@@ -371,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
             chip.onTap = { [weak self] in act(); self?.rebuildBar() }  // stay on the pet row (needs-based buttons refresh)
         }
         localChip.onTap = { [weak self] in self?.localChipTapped() }
+        claudeAccounts.onChange = { [weak self] in self?.accountChips.values.forEach { $0.relayout() } }
         toolsChip.extras = extras
         toolsChip.onTap = { [weak self] in
             guard let self else { return }
@@ -413,6 +428,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
         }
         modelChips[mid] = c
         return c
+    }
+
+    private func openUsagePick() {
+        claudeAccounts.reload()
+        accountChips.removeAll()                  // names / active account may have changed
+        mode = .usagePick
+    }
+
+    private func accountChip(_ name: String) -> AccountChip? {
+        if let c = accountChips[name] { return c }
+        guard let a = claudeAccounts.accounts.first(where: { $0.name == name }) else { return nil }
+        let c = AccountChip(a, claudeAccounts)
+        c.onTap = { [weak self] in self?.switchClaudeAccount(name) }
+        accountChips[name] = c
+        return c
+    }
+
+    /// Tap an account: switch (one tap, no confirm). Success → back to the main bar with fresh numbers.
+    private func switchClaudeAccount(_ name: String) {
+        guard let a = claudeAccounts.accounts.first(where: { $0.name == name }), !claudeAccounts.isActive(a) else { return }
+        claudeAccounts.switchTo(name) { [weak self] ok in
+            guard let self, ok else { return }
+            self.refreshUsage()
+            if case .usagePick = self.mode { self.mode = .overview; self.rebuildBar() }
+        }
+    }
+
+    @objc private func menuSwitchAccount(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        switchClaudeAccount(name)
     }
 
     private func toolChip(_ key: String) -> ToolToggleChip? {
@@ -647,6 +692,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate, NS
                 item.representedObject = u.id.rawValue
             }
             menu.addItem(item)
+        }
+        claudeAccounts.reload()
+        if claudeAccounts.available {
+            for a in claudeAccounts.accounts {
+                let busy = claudeAccounts.switching == a.name
+                let it = NSMenuItem(title: "   Claude account: \(a.name)\(busy ? "  (switching…)" : "")",
+                                    action: claudeAccounts.isActive(a) ? nil : #selector(menuSwitchAccount(_:)), keyEquivalent: "")
+                it.state = claudeAccounts.isActive(a) ? .on : .off
+                it.target = self
+                it.representedObject = a.name
+                it.toolTip = a.email
+                menu.addItem(it)
+            }
         }
         menu.addItem(.separator())
 
